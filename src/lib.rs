@@ -7,8 +7,8 @@ use pyo3::types::{
     PyAnyMethods, PyDict, PyDictMethods, PyList, PyModule, PySequence, PySequenceMethods, PyString,
     PyTuple,
 };
-use saphyr::{Mapping, Scalar, ScalarStyle, Tag, Yaml, YamlEmitter};
-use saphyr_parser::Parser;
+use saphyr::{Mapping, Scalar, Tag, Yaml, YamlEmitter};
+use saphyr_parser::{Parser, ScalarStyle};
 use std::borrow::Cow;
 use std::ffi::CString;
 use std::fs;
@@ -23,6 +23,9 @@ static TAGGED_CLASS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
 enum CanonicalTagKind {
     CoreString,
     CoreNull,
+    CoreInt,
+    CoreBool,
+    CoreFloat,
 }
 
 enum TagClass {
@@ -38,8 +41,17 @@ fn parse_yaml(py: Python<'_>, text: PyObject, multi: bool) -> Result<PyObject> {
     if joined.is_none() {
         return Ok(py.None());
     }
-    let docs = load_yaml_documents(joined.as_deref().unwrap(), multi)?;
-    docs_to_python(py, docs, multi)
+    let src = joined.as_deref().unwrap();
+    let docs = load_yaml_documents(src, multi)?;
+    let mut out = docs_to_python(py, docs, multi)?;
+    if !multi {
+        if let Some(tag) = leading_tag(src) {
+            if !is_tagged_instance(py, &out)? {
+                out = make_tagged(py, out, &tag)?;
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[pyfunction(signature = (path, multi=false))]
@@ -131,6 +143,45 @@ fn load_yaml_documents<'input>(text: &'input str, multi: bool) -> Result<Vec<Yam
     Ok(loader.into_documents())
 }
 
+fn leading_tag(text: &str) -> Option<String> {
+    let trimmed = text.trim_start();
+    if !trimmed.starts_with('!') {
+        return None;
+    }
+    let end = trimmed
+        .find(char::is_whitespace)
+        .unwrap_or_else(|| trimmed.len());
+    let tag = &trimmed[..end];
+    if tag == "!" {
+        return None;
+    }
+    Some(tag.to_string())
+}
+
+fn classify_scalar_style(style: ScalarStyle, value: &str) -> Scalar<'static> {
+    match style {
+        ScalarStyle::Plain => {
+            // Replicate the core schema resolution for scalars that aren't tagged.
+            if value.is_empty() {
+                Scalar::Null
+            } else if value == "null" || value == "~" {
+                Scalar::Null
+            } else if value == "true" {
+                Scalar::Boolean(true)
+            } else if value == "false" {
+                Scalar::Boolean(false)
+            } else if let Ok(int_val) = value.parse::<i64>() {
+                Scalar::Integer(int_val)
+            } else if let Ok(float_val) = value.parse::<f64>() {
+                Scalar::FloatingPoint(float_val.into())
+            } else {
+                Scalar::String(Cow::Owned(value.to_string()))
+            }
+        }
+        _ => Scalar::String(Cow::Owned(value.to_string())),
+    }
+}
+
 fn resolve_representation(node: &mut Yaml, _simplify: bool) {
     let (value, style, tag) = match mem::replace(node, Yaml::BadValue) {
         Yaml::Representation(value, style, tag) => (value, style, tag),
@@ -150,8 +201,24 @@ fn resolve_representation(node: &mut Yaml, _simplify: bool) {
                     if kind == CanonicalTagKind::CoreNull && is_plain_empty {
                         Yaml::Value(Scalar::Null)
                     } else {
-                        let canonical_tag = Cow::Owned(make_canonical_tag(kind));
-                        Yaml::value_from_cow_and_metadata(value, style, Some(&canonical_tag))
+                        let scalar = match kind {
+                            CanonicalTagKind::CoreString => Scalar::String(Cow::Owned(value.to_string())),
+                            CanonicalTagKind::CoreNull => Scalar::Null,
+                            CanonicalTagKind::CoreInt => value
+                                .parse::<i64>()
+                                .map(Scalar::Integer)
+                                .unwrap_or_else(|_| Scalar::String(Cow::Owned(value.to_string()))),
+                            CanonicalTagKind::CoreBool => match value.to_ascii_lowercase().as_str() {
+                                "true" => Scalar::Boolean(true),
+                                "false" => Scalar::Boolean(false),
+                                _ => Scalar::String(Cow::Owned(value.to_string())),
+                            },
+                            CanonicalTagKind::CoreFloat => value
+                                .parse::<f64>()
+                                .map(|f| Scalar::FloatingPoint(f.into()))
+                                .unwrap_or_else(|_| Scalar::String(Cow::Owned(value.to_string()))),
+                        };
+                        Yaml::Value(scalar)
                     }
                 }
                 TagClass::Core => {
@@ -159,7 +226,7 @@ fn resolve_representation(node: &mut Yaml, _simplify: bool) {
                     Yaml::value_from_cow_and_metadata(value, style, Some(&core_tag))
                 }
                 TagClass::NonCore => {
-                    let inner = Yaml::value_from_cow_and_metadata(value, style, None);
+                    let inner = Yaml::Value(classify_scalar_style(style, value.as_ref()));
                     Yaml::Tagged(Cow::Owned(owned_tag), Box::new(inner))
                 }
             }
@@ -209,6 +276,16 @@ fn scalar_to_py(py: Python<'_>, scalar: &Scalar) -> PyObject {
     }
 }
 
+fn scalar_to_string(scalar: &Scalar) -> String {
+    match scalar {
+        Scalar::Null => "null".to_string(),
+        Scalar::Boolean(v) => v.to_string(),
+        Scalar::Integer(v) => v.to_string(),
+        Scalar::FloatingPoint(v) => v.into_inner().to_string(),
+        Scalar::String(v) => v.to_string(),
+    }
+}
+
 fn sequence_to_py(py: Python<'_>, seq: &mut [Yaml], is_key: bool) -> Result<PyObject> {
     let mut values = Vec::with_capacity(seq.len());
     for node in seq {
@@ -250,11 +327,18 @@ fn mapping_to_py(py: Python<'_>, map: &mut Mapping, is_key: bool) -> Result<PyOb
 }
 
 fn convert_tagged(py: Python<'_>, tag: &Tag, node: &mut Yaml, is_key: bool) -> Result<PyObject> {
+    let rendered = render_tag(tag);
+    if rendered == "!" {
+        if let Yaml::Value(scalar) = node {
+            let s = scalar_to_string(scalar);
+            return Ok(PyString::new(py, &s).unbind().into());
+        }
+        return yaml_to_py(py, node, is_key);
+    }
     match classify_tag(tag) {
-        TagClass::Canonical(_) | TagClass::Core => yaml_to_py(py, node, is_key),
-        TagClass::NonCore => {
+        TagClass::Canonical(_) => yaml_to_py(py, node, is_key),
+        TagClass::Core | TagClass::NonCore => {
             let value = yaml_to_py(py, node, is_key)?;
-            let rendered = render_tag(tag);
             make_tagged(py, value, &rendered)
         }
     }
@@ -265,6 +349,14 @@ fn make_tagged(py: Python<'_>, value: PyObject, tag: &str) -> Result<PyObject> {
         .get(py)
         .ok_or_else(|| PyValueError::new_err("Tagged class is not initialized"))?;
     cls.bind(py).call1((value, tag)).map(|obj| obj.into())
+}
+
+fn is_tagged_instance(py: Python<'_>, obj: &PyObject) -> Result<bool> {
+    if let Some(cls) = TAGGED_CLASS.get(py) {
+        obj.bind(py).is_instance(&cls.bind(py))
+    } else {
+        Ok(false)
+    }
 }
 
 fn canonical_tag_kind(tag: &Tag) -> Option<CanonicalTagKind> {
@@ -280,15 +372,34 @@ fn canonical_tag_kind(tag: &Tag) -> Option<CanonicalTagKind> {
         ("", "!null") => Some(CanonicalTagKind::CoreNull),
         ("", "!!null") => Some(CanonicalTagKind::CoreNull),
         ("", "tag:yaml.org,2002:null") => Some(CanonicalTagKind::CoreNull),
+        ("tag:yaml.org,2002:", "int") => Some(CanonicalTagKind::CoreInt),
+        ("", "int") => Some(CanonicalTagKind::CoreInt),
+        ("", "!int") => Some(CanonicalTagKind::CoreInt),
+        ("", "!!int") => Some(CanonicalTagKind::CoreInt),
+        ("tag:yaml.org,2002:", "bool") => Some(CanonicalTagKind::CoreBool),
+        ("", "bool") => Some(CanonicalTagKind::CoreBool),
+        ("", "!bool") => Some(CanonicalTagKind::CoreBool),
+        ("", "!!bool") => Some(CanonicalTagKind::CoreBool),
+        ("tag:yaml.org,2002:", "float") => Some(CanonicalTagKind::CoreFloat),
+        ("", "float") => Some(CanonicalTagKind::CoreFloat),
+        ("", "!float") => Some(CanonicalTagKind::CoreFloat),
+        ("", "!!float") => Some(CanonicalTagKind::CoreFloat),
         _ => None,
     }
 }
 
 fn classify_tag(tag: &Tag) -> TagClass {
+    // Local handles ("!") should never be treated as core schema.
+    if tag.handle.as_str() == "!" {
+        if let Some(kind) = canonical_tag_kind(tag) {
+            return TagClass::Canonical(kind);
+        }
+        return TagClass::NonCore;
+    }
     if let Some(kind) = canonical_tag_kind(tag) {
         TagClass::Canonical(kind)
     } else if tag.is_yaml_core_schema() {
-        TagClass::Core
+        TagClass::NonCore
     } else {
         TagClass::NonCore
     }
@@ -298,6 +409,9 @@ fn make_canonical_tag(kind: CanonicalTagKind) -> Tag {
     let suffix = match kind {
         CanonicalTagKind::CoreString => "str",
         CanonicalTagKind::CoreNull => "null",
+        CanonicalTagKind::CoreInt => "int",
+        CanonicalTagKind::CoreBool => "bool",
+        CanonicalTagKind::CoreFloat => "float",
     };
     Tag {
         handle: "tag:yaml.org,2002:".to_string(),
