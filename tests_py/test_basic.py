@@ -26,4 +26,4 @@ def test_tagged_roundtrip():
     reparsed = yaml12.parse_yaml(text)
     assert isinstance(reparsed, yaml12.Tagged)
     assert reparsed.tag == "!custom"
-    assert reparsed.value == 5
+    assert reparsed.value == "5"

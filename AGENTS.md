@@ -4,8 +4,8 @@
 - Avoid destructive git operations (no reset --hard, no checkout --) unless explicitly requested.
 - Prefer `rg` for searching and run `cargo fmt` and `cargo clippy` before finishing substantial edits.
 - How to run tests (always run the relevant suites before finishing work):
-  - Rust unit/integration tests: `cargo test` (ensure Python dev libs are discoverable for PyO3).
-  - Python tests: in a venv with the package installed (`.venv/bin/pip install -e .` or `maturin develop`), ensure `pytest` is installed (`.venv/bin/pip install pytest`), then run `.venv/bin/python -m pytest tests_py`.
+  - Rust unit/integration tests: `cargo test`.
+  - Python tests: in a venv with the package installed (`.venv/bin/maturin develop` or `.venv/bin/pip install -e .`), ensure `pytest` is installed (`.venv/bin/pip install pytest`), then run `.venv/bin/python -m pytest tests_py`.
 - Always (re)install the local package into the venv before running Python tests with: `.venv/bin/pip install -e . --no-build-isolation`.
 - Use the existing `saphyr`/`saphyr-parser` git dependencies; do not change crate sources or pins without approval.
 - For Python bindings, preserve the exposed API (`parse_yaml`, `read_yaml`, `format_yaml`, `write_yaml`) and the `Tagged` dataclass contract. Tagged values wrap non-core tags only; canonical/core tags are treated as untagged.
