@@ -54,7 +54,10 @@ fn read_yaml(py: Python<'_>, path: &str, multi: bool) -> Result<PyObject> {
 fn format_yaml(py: Python<'_>, value: PyObject, multi: bool) -> Result<String> {
     let bound = value.bind(py);
     let yaml = py_to_yaml(py, &bound, false)?;
-    let output = format_yaml_impl(&yaml, multi)?;
+    let mut output = format_yaml_impl(&yaml, multi)?;
+    if multi {
+        output.push_str("...\n");
+    }
     Ok(yaml_body(&output, multi).to_string())
 }
 
@@ -155,10 +158,10 @@ fn resolve_representation(node: &mut Yaml, _simplify: bool) {
                     let core_tag = Cow::Owned(owned_tag);
                     Yaml::value_from_cow_and_metadata(value, style, Some(&core_tag))
                 }
-                TagClass::NonCore => Yaml::Tagged(
-                    Cow::Owned(owned_tag),
-                    Box::new(Yaml::Value(Scalar::String(value))),
-                ),
+                TagClass::NonCore => {
+                    let inner = Yaml::value_from_cow_and_metadata(value, style, None);
+                    Yaml::Tagged(Cow::Owned(owned_tag), Box::new(inner))
+                }
             }
         }
         None if is_plain_empty => Yaml::Value(Scalar::Null),
