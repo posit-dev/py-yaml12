@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Iterable, Literal, Tuple
+
+import pytest
+
+import yaml12
+
+CASE_ROOT = Path(__file__).resolve().parents[1] / "tests" / "yaml-test-suite" / "data"
+
+
+def _load_yaml_multi(text: str):
+    """Parse always with multi=True to keep stream structure."""
+    return yaml12.parse_yaml(text, multi=True)
+
+
+def _iter_cases() -> Iterable[Tuple[Literal["out", "json", "error"], Path]]:
+    for case_dir in sorted(p for p in CASE_ROOT.iterdir() if p.is_dir()):
+        in_yaml = case_dir / "in.yaml"
+        out_yaml = case_dir / "out.yaml"
+        in_json = case_dir / "in.json"
+        error_marker = case_dir / "error"
+
+        if not in_yaml.exists():
+            continue
+        if error_marker.exists():
+            yield ("error", case_dir)
+        elif out_yaml.exists():
+            yield ("out", case_dir)
+        elif in_json.exists():
+            yield ("json", case_dir)
+
+
+def _parse_json_stream(text: str):
+    decoder = json.JSONDecoder()
+    pos = 0
+    results = []
+    length = len(text)
+    while True:
+        while pos < length and text[pos].isspace():
+            pos += 1
+        if pos >= length:
+            break
+        obj, new_pos = decoder.raw_decode(text, pos)
+        results.append(obj)
+        pos = new_pos
+    return results
+
+
+def _strip_tags(obj):
+    if isinstance(obj, yaml12.Tagged):
+        return _strip_tags(obj.value)
+    if isinstance(obj, list):
+        return [_strip_tags(item) for item in obj]
+    if isinstance(obj, dict):
+        return { _strip_tags(k): _strip_tags(v) for k, v in obj.items() }
+    return obj
+
+
+@pytest.mark.parametrize("kind, case_dir", _iter_cases())
+def test_yaml_suite_cases(kind: Literal["out", "json", "error"], case_dir: Path):
+    in_yaml = (case_dir / "in.yaml").read_text(encoding="utf-8")
+
+    if kind == "error":
+        try:
+            yaml12.parse_yaml(in_yaml)
+        except Exception:
+            return
+        pytest.xfail("Parser accepted a case marked as error in the suite")
+        return
+
+    if kind == "out":
+        expected_text = (case_dir / "out.yaml").read_text(encoding="utf-8")
+        actual = _load_yaml_multi(in_yaml)
+        expected = _load_yaml_multi(expected_text)
+        assert actual == expected
+        return
+
+    if kind == "json":
+        expected_stream = _parse_json_stream((case_dir / "in.json").read_text(encoding="utf-8"))
+        actual_stream = _load_yaml_multi(in_yaml)
+        assert _strip_tags(actual_stream) == expected_stream
+        return
