@@ -3,7 +3,13 @@ from __future__ import annotations
 import datetime as dt
 from pathlib import Path
 
+import pytest
+
 import yaml12
+
+
+class CustomError(Exception):
+    pass
 
 
 def _apply_tag_handlers(obj: object, handlers: dict[str, object]):
@@ -129,3 +135,55 @@ start_at: !ts 2024-11-22T18:30:00Z
     assert converted["config"][2] == dt.timedelta(seconds=0.25)
     assert converted["start_at"] == dt.datetime(2024, 11, 22, 18, 30, tzinfo=dt.timezone.utc)
     assert converted[env["HOME"]] == env["CONF"]
+
+
+def test_handler_exception_passes_through_for_value():
+    def blow_up(tagged):
+        raise CustomError("boom value")
+
+    with pytest.raises(CustomError, match="boom value"):
+        yaml12.parse_yaml("value: !boom 1", handlers={"!boom": blow_up})
+
+
+def test_handler_exception_passes_through_for_key():
+    def blow_up(tagged):
+        raise CustomError("boom key")
+
+    text = """\
+? !boom key
+: value
+"""
+    with pytest.raises(CustomError, match="boom key"):
+        yaml12.parse_yaml(text, handlers={"!boom": blow_up})
+
+
+def test_tagged_scalar_preserves_string_value():
+    out = yaml12.parse_yaml("!foo 001")
+
+    assert isinstance(out, yaml12.Tagged)
+    assert out.tag == "!foo"
+    assert out.value == "001"
+    assert isinstance(out.value, str)
+
+
+def test_non_specific_tag_scalar_returns_tagged_without_handler():
+    out = yaml12.parse_yaml("! 001")
+
+    assert isinstance(out, yaml12.Tagged)
+    assert out.tag == "!"
+    assert out.value == "001"
+    assert isinstance(out.value, str)
+
+
+def test_non_specific_tag_scalar_with_handler_overrides_value():
+    calls = []
+
+    def handle_non_specific(value):
+        calls.append(value)
+        return f"handled:{value}"
+
+    out = yaml12.parse_yaml("! 001", handlers={"!": handle_non_specific})
+
+    assert out == "handled:001"
+    assert calls == ["001"]
+    assert isinstance(calls[0], str)

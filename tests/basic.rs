@@ -1,5 +1,7 @@
 use pyo3::types::{PyDict, PyList, PyModule};
 use pyo3::{prelude::*, PyResult};
+use saphyr::Yaml;
+use saphyr_parser::Parser;
 
 fn init_module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
     let module = PyModule::new(py, "yaml12_test")?;
@@ -82,4 +84,27 @@ fn preserves_non_core_tags() -> PyResult<()> {
         assert_eq!(reparsed.getattr("value")?.extract::<String>()?, "2");
         Ok(())
     })
+}
+
+#[test]
+fn non_specific_tag_parts_are_consistent() {
+    let mut loader = saphyr::YamlLoader::default();
+    loader.early_parse(false);
+    let mut parser = Parser::new_from_str("! 001");
+    parser
+        .load(&mut loader, false)
+        .expect("parser should load non-specific tag");
+    let mut docs = loader.into_documents();
+    let doc = docs.pop().expect("document should be present");
+    match doc {
+        Yaml::Tagged(tag, _) => {
+            assert_eq!(tag.handle.as_str(), "");
+            assert_eq!(tag.suffix.as_str(), "!");
+        }
+        Yaml::Representation(_, _, Some(tag)) => {
+            assert_eq!(tag.handle.as_str(), "");
+            assert_eq!(tag.suffix.as_str(), "!");
+        }
+        other => panic!("expected tagged or representation node, got {other:?}"),
+    }
 }

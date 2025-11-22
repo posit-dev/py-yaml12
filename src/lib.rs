@@ -32,15 +32,21 @@ enum TagClass {
     NonCore,
 }
 
-#[derive(Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 struct HandlerKeyOwned {
     handle: String,
     suffix: String,
 }
 
-impl HandlerKeyOwned {
-    fn matches(&self, key: HandlerKeyRef<'_>) -> bool {
-        self.handle == key.handle && self.suffix == key.suffix
+impl PartialEq<HandlerKeyRef<'_>> for HandlerKeyOwned {
+    fn eq(&self, other: &HandlerKeyRef<'_>) -> bool {
+        self.normalized_parts() == other.normalized_parts()
+    }
+}
+
+impl PartialEq<HandlerKeyOwned> for HandlerKeyRef<'_> {
+    fn eq(&self, other: &HandlerKeyOwned) -> bool {
+        self.normalized_parts() == other.normalized_parts()
     }
 }
 
@@ -59,6 +65,38 @@ impl<'a> From<&'a Tag> for HandlerKeyRef<'a> {
     }
 }
 
+impl HandlerKeyOwned {
+    fn from_parts(handle: &str, suffix: &str) -> Self {
+        let (handle, suffix) = normalize_tag_parts(handle, suffix);
+        Self {
+            handle: handle.to_string(),
+            suffix: suffix.to_string(),
+        }
+    }
+
+    fn from_tag(tag: &Tag) -> Self {
+        Self::from_parts(tag.handle.as_str(), tag.suffix.as_str())
+    }
+
+    fn normalized_parts(&self) -> (&str, &str) {
+        normalize_tag_parts(self.handle.as_str(), self.suffix.as_str())
+    }
+
+    fn is_non_specific(&self) -> bool {
+        self.normalized_parts() == ("", "!")
+    }
+}
+
+impl<'a> HandlerKeyRef<'a> {
+    fn normalized_parts(self) -> (&'a str, &'a str) {
+        normalize_tag_parts(self.handle, self.suffix)
+    }
+
+    fn is_non_specific(self) -> bool {
+        self.normalized_parts() == ("", "!")
+    }
+}
+
 struct HandlerEntry {
     key: HandlerKeyOwned,
     handler: Py<PyAny>,
@@ -71,10 +109,11 @@ enum HandlerStore {
 
 struct HandlerRegistry {
     store: HandlerStore,
+    non_specific: Option<Py<PyAny>>,
 }
 
 impl HandlerRegistry {
-    fn from_py(_py: Python<'_>, handlers: Option<&Bound<'_, PyAny>>) -> Result<Option<Self>> {
+    fn from_py(py: Python<'_>, handlers: Option<&Bound<'_, PyAny>>) -> Result<Option<Self>> {
         let Some(obj) = handlers else {
             return Ok(None);
         };
@@ -93,6 +132,8 @@ impl HandlerRegistry {
         const HASHMAP_MIN_LEN: usize = 8;
         let use_hash_map = dict.len() >= HASHMAP_MIN_LEN;
 
+        let mut non_specific: Option<Py<PyAny>> = None;
+
         if use_hash_map {
             let mut handlers_map = HashMap::with_capacity(dict.len());
             for (key_obj, value_obj) in dict.iter() {
@@ -107,10 +148,15 @@ impl HandlerRegistry {
                         key_text
                     )));
                 }
-                handlers_map.insert(key, value_obj.unbind());
+                let handler = value_obj.unbind();
+                if key.is_non_specific() {
+                    non_specific = Some(handler.clone_ref(py));
+                }
+                handlers_map.insert(key, handler);
             }
             return Ok(Some(Self {
                 store: HandlerStore::Large(handlers_map),
+                non_specific,
             }));
         }
 
@@ -128,36 +174,45 @@ impl HandlerRegistry {
                 )));
             }
 
+            let handler = value_obj.unbind();
+            if key.is_non_specific() {
+                non_specific = Some(handler.clone_ref(py));
+            }
+
             if let Some(existing) = entries.iter_mut().find(|entry| entry.key == key) {
-                existing.handler = value_obj.unbind();
+                existing.handler = handler;
             } else {
-                entries.push(HandlerEntry {
-                    key,
-                    handler: value_obj.unbind(),
-                });
+                entries.push(HandlerEntry { key, handler });
             }
         }
 
         Ok(Some(Self {
             store: HandlerStore::Small(entries),
+            non_specific,
         }))
     }
 
     fn get_for_tag(&self, tag: &Tag) -> Option<&Py<PyAny>> {
-        let key_ref = HandlerKeyRef::from(tag);
         match &self.store {
-            HandlerStore::Small(entries) => entries
-                .iter()
-                .find(|entry| entry.key.matches(key_ref))
-                .map(|entry| &entry.handler),
+            HandlerStore::Small(entries) => {
+                let key_ref = HandlerKeyRef::from(tag);
+                entries
+                    .iter()
+                    .find(|entry| entry.key == key_ref)
+                    .map(|entry| &entry.handler)
+            }
             HandlerStore::Large(map) => {
-                let lookup = HandlerKeyOwned {
-                    handle: key_ref.handle.to_string(),
-                    suffix: key_ref.suffix.to_string(),
-                };
+                let lookup = HandlerKeyOwned::from_tag(tag);
                 map.get(&lookup)
             }
         }
+        .or_else(|| {
+            if HandlerKeyRef::from(tag).is_non_specific() {
+                self.non_specific.as_ref()
+            } else {
+                None
+            }
+        })
     }
 
     fn apply(&self, py: Python<'_>, handler: &Py<PyAny>, arg: PyObject) -> Result<PyObject> {
@@ -167,10 +222,7 @@ impl HandlerRegistry {
 
 fn parse_handler_name(name: &str) -> Result<HandlerKeyOwned> {
     if let Some((handle, suffix)) = split_tag_name(name) {
-        return Ok(HandlerKeyOwned {
-            handle: handle.to_string(),
-            suffix: suffix.to_string(),
-        });
+        return Ok(HandlerKeyOwned::from_parts(handle, suffix));
     }
     Err(PyTypeError::new_err(
         "`handlers` keys must be valid YAML tag strings",
@@ -178,6 +230,9 @@ fn parse_handler_name(name: &str) -> Result<HandlerKeyOwned> {
 }
 
 fn split_tag_name(name: &str) -> Option<(&str, &str)> {
+    if name == "!" {
+        return Some(("", "!"));
+    }
     if let Some(pos) = name.rfind('!') {
         if pos + 1 < name.len() {
             let (handle, suffix) = name.split_at(pos + 1);
@@ -191,6 +246,14 @@ fn split_tag_name(name: &str) -> Option<(&str, &str)> {
         }
     }
     None
+}
+
+fn normalize_tag_parts<'a>(handle: &'a str, suffix: &'a str) -> (&'a str, &'a str) {
+    if (handle == "!" && suffix.is_empty()) || (handle.is_empty() && suffix == "!") {
+        ("", "!")
+    } else {
+        (handle, suffix)
+    }
 }
 
 #[pyfunction(signature = (text, multi=false, handlers=None))]
@@ -497,16 +560,6 @@ fn scalar_to_py(py: Python<'_>, scalar: &Scalar) -> PyObject {
     }
 }
 
-fn scalar_to_string(scalar: &Scalar) -> String {
-    match scalar {
-        Scalar::Null => "null".to_string(),
-        Scalar::Boolean(v) => v.to_string(),
-        Scalar::Integer(v) => v.to_string(),
-        Scalar::FloatingPoint(v) => v.into_inner().to_string(),
-        Scalar::String(v) => v.to_string(),
-    }
-}
-
 fn sequence_to_py(
     py: Python<'_>,
     seq: &mut [Yaml],
@@ -565,13 +618,6 @@ fn convert_tagged(
     handlers: Option<&HandlerRegistry>,
 ) -> Result<PyObject> {
     let rendered = render_tag(tag);
-    if rendered == "!" {
-        if let Yaml::Value(scalar) = node {
-            let s = scalar_to_string(scalar);
-            return Ok(PyString::new(py, &s).unbind().into());
-        }
-        return yaml_to_py(py, node, is_key, handlers);
-    }
     if let Some(registry) = handlers {
         if let Some(handler) = registry.get_for_tag(tag) {
             let value = yaml_to_py(py, node, is_key, handlers)?;
@@ -774,6 +820,12 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
 fn parse_tag_string(tag: &str) -> Result<Tag> {
     if tag.is_empty() {
         return Err(PyValueError::new_err("tag must not be empty"));
+    }
+    if tag == "!" {
+        return Ok(Tag {
+            handle: String::new(),
+            suffix: "!".to_string(),
+        });
     }
     if let Some(pos) = tag.rfind('!') {
         if pos + 1 >= tag.len() {
