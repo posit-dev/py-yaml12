@@ -73,10 +73,19 @@ def test_format_yaml_round_trips_multi_document_streams():
 
     encoded = yaml12.format_yaml(docs, multi=True)
 
-    lines = encoded.splitlines()
-    assert lines[0] == "---"
-    assert "---" in lines[1:]
-    assert lines[-1] == "..."
+    expected = textwrap.dedent(
+        """\
+        ---
+        foo: 1
+        ---
+        bar:
+          - 2
+          - ~
+        ...
+        """
+    )
+
+    assert encoded == expected
     assert yaml12.parse_yaml(encoded, multi=True) == docs
 
 

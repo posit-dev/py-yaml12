@@ -15,13 +15,9 @@ def test_write_and_read_single_document(tmp_path: Path):
     body = yaml12.format_yaml(value)
     yaml12.write_yaml(value, str(path))
 
+    expected = f"---\n{body}\n...\n"
     assert path.exists()
-    file_lines = path.read_text(encoding="utf-8").splitlines()
-    body_lines = body.splitlines()
-
-    assert file_lines[0] == "---"
-    assert file_lines[-1] == "..."
-    assert file_lines[1 : 1 + len(body_lines)] == body_lines
+    assert path.read_text(encoding="utf-8") == expected
     assert yaml12.read_yaml(str(path)) == value
 
 
