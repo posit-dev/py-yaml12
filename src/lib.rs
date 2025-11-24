@@ -274,20 +274,7 @@ fn parse_yaml(
     }
     let src = joined.as_deref().unwrap();
     let docs = load_yaml_documents(src, multi)?;
-    let mut out = docs_to_python(py, docs, multi, handlers)?;
-    if !multi {
-        if let Some(tag) = leading_tag(src) {
-            if let (Some(registry), Ok(parsed_tag)) = (handlers, parse_tag_string(&tag)) {
-                if let Some(handler) = registry.get_for_tag(&parsed_tag) {
-                    return registry.apply(py, handler, out);
-                }
-            }
-            if !is_tagged_instance(py, &out)? {
-                out = make_tagged(py, out, &tag)?;
-            }
-        }
-    }
-    Ok(out)
+    docs_to_python(py, docs, multi, handlers)
 }
 
 #[pyfunction(signature = (path, multi=false, handlers=None))]
@@ -447,19 +434,6 @@ fn load_yaml_documents<'input>(text: &'input str, multi: bool) -> Result<Vec<Yam
     Ok(loader.into_documents())
 }
 
-fn leading_tag(text: &str) -> Option<String> {
-    let trimmed = text.trim_start();
-    if !trimmed.starts_with('!') {
-        return None;
-    }
-    let end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
-    let tag = &trimmed[..end];
-    if tag == "!" {
-        return None;
-    }
-    Some(tag.to_string())
-}
-
 fn resolve_representation(node: &mut Yaml, _simplify: bool) {
     let (value, style, tag) = match mem::replace(node, Yaml::BadValue) {
         Yaml::Representation(value, style, tag) => (value, style, tag),
@@ -600,8 +574,6 @@ fn convert_tagged(
     is_key: bool,
     handlers: Option<&HandlerRegistry>,
 ) -> Result<PyObject> {
-    // dbg!(tag);
-    let rendered = render_tag(tag);
     if let Some(registry) = handlers {
         if let Some(handler) = registry.get_for_tag(tag) {
             let value = yaml_to_py(py, node, is_key, handlers)?;
@@ -609,9 +581,10 @@ fn convert_tagged(
         }
     }
     match classify_tag(tag) {
-        TagClass::Canonical(_) => yaml_to_py(py, node, is_key, handlers),
-        TagClass::Core | TagClass::NonCore => {
+        TagClass::Canonical(_) | TagClass::Core => yaml_to_py(py, node, is_key, handlers),
+        TagClass::NonCore => {
             let value = yaml_to_py(py, node, is_key, handlers)?;
+            let rendered = render_tag(tag);
             make_tagged(py, value, &rendered)
         }
     }
@@ -622,14 +595,6 @@ fn make_tagged(py: Python<'_>, value: PyObject, tag: &str) -> Result<PyObject> {
         .get(py)
         .ok_or_else(|| PyValueError::new_err("Tagged class is not initialized"))?;
     cls.bind(py).call1((value, tag)).map(|obj| obj.into())
-}
-
-fn is_tagged_instance(py: Python<'_>, obj: &PyObject) -> Result<bool> {
-    if let Some(cls) = TAGGED_CLASS.get(py) {
-        obj.bind(py).is_instance(cls.bind(py))
-    } else {
-        Ok(false)
-    }
 }
 
 fn canonical_tag_kind(tag: &Tag) -> Option<CanonicalTagKind> {
@@ -770,7 +735,10 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
         let tag_str = tag_obj.downcast::<PyString>()?.to_str()?;
         let tag = parse_tag_string(tag_str)?;
         let inner = py_to_yaml(py, &value_obj, is_key)?;
-        return Ok(Yaml::Tagged(Cow::Owned(tag), Box::new(inner)));
+        return match classify_tag(&tag) {
+            TagClass::Canonical(_) | TagClass::Core => Ok(inner),
+            TagClass::NonCore => Ok(Yaml::Tagged(Cow::Owned(tag), Box::new(inner))),
+        };
     }
 
     if let Ok(dict) = obj.downcast::<PyDict>() {
@@ -802,35 +770,30 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
 }
 
 fn parse_tag_string(tag: &str) -> Result<Tag> {
-    if tag.is_empty() {
+    const YAML_CORE_HANDLE: &str = "tag:yaml.org,2002:";
+
+    let trimmed = tag.trim();
+    if trimmed.is_empty() {
         return Err(PyValueError::new_err("tag must not be empty"));
     }
-    if tag == "!" {
-        return Ok(Tag {
-            handle: String::new(),
-            suffix: "!".to_string(),
-        });
+
+    let Some((mut handle, mut suffix)) = split_tag_name(trimmed) else {
+        return Err(PyValueError::new_err(format!(
+            "invalid YAML tag `{trimmed}`"
+        )));
+    };
+
+    if handle == "!!" {
+        handle = YAML_CORE_HANDLE;
+    } else if handle.is_empty() && suffix.starts_with(YAML_CORE_HANDLE) {
+        suffix = &suffix[YAML_CORE_HANDLE.len()..];
+        handle = YAML_CORE_HANDLE;
     }
-    if let Some(pos) = tag.rfind('!') {
-        if pos + 1 >= tag.len() {
-            return Err(PyValueError::new_err(format!("invalid YAML tag `{tag}`")));
-        }
-        let handle = &tag[..pos];
-        let suffix = &tag[pos + 1..];
-        if handle.is_empty() {
-            Ok(Tag {
-                handle: "!".to_string(),
-                suffix: suffix.to_string(),
-            })
-        } else {
-            Ok(Tag {
-                handle: handle.to_string(),
-                suffix: suffix.to_string(),
-            })
-        }
-    } else {
-        Err(PyValueError::new_err(format!("invalid YAML tag `{tag}`")))
-    }
+
+    Ok(Tag {
+        handle: handle.to_string(),
+        suffix: suffix.to_string(),
+    })
 }
 
 fn is_tagged(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
@@ -903,25 +866,22 @@ mod tests {
     #[test]
     fn canonical_string_tags_cover_all_forms() {
         let cases = [
-            ("!!str example", ("tag:yaml.org,2002:", "str")),
-            ("!str example", ("!", "str")),
-            ("!<str> example", ("", "str")),
-            ("!<!str> example", ("", "!str")),
-            ("!<!!str> example", ("", "!!str")),
-            (
-                "!<tag:yaml.org,2002:str> example",
-                ("", "tag:yaml.org,2002:str"),
-            ),
+            "!!str example",
+            "!str example",
+            "!<str> example",
+            "!<!str> example",
+            "!<!!str> example",
+            "!<tag:yaml.org,2002:str> example",
         ];
 
-        for (input, (handle, suffix)) in cases {
+        for input in cases {
             let tag = tag_from_scalar(input);
-            assert_eq!(tag.handle, handle);
-            assert_eq!(tag.suffix, suffix);
             assert_eq!(
                 canonical_tag_kind(&tag),
                 Some(CanonicalTagKind::CoreString),
-                "input `{input}` should map to canonical string tag"
+                "input `{input}` should map to canonical string tag (handle `{}`, suffix `{}`)",
+                tag.handle,
+                tag.suffix
             );
         }
     }
@@ -929,24 +889,21 @@ mod tests {
     #[test]
     fn canonical_null_tags_cover_all_forms() {
         let cases = [
-            ("!!null null", ("tag:yaml.org,2002:", "null")),
-            ("!<null> null", ("", "null")),
-            ("!<!null> null", ("", "!null")),
-            ("!<!!null> null", ("", "!!null")),
-            (
-                "!<tag:yaml.org,2002:null> null",
-                ("", "tag:yaml.org,2002:null"),
-            ),
+            "!!null null",
+            "!<null> null",
+            "!<!null> null",
+            "!<!!null> null",
+            "!<tag:yaml.org,2002:null> null",
         ];
 
-        for (input, (handle, suffix)) in cases {
+        for input in cases {
             let tag = tag_from_scalar(input);
-            assert_eq!(tag.handle, handle);
-            assert_eq!(tag.suffix, suffix);
             assert_eq!(
                 canonical_tag_kind(&tag),
                 Some(CanonicalTagKind::CoreNull),
-                "input `{input}` should map to canonical null tag"
+                "input `{input}` should map to canonical null tag (handle `{}`, suffix `{}`)",
+                tag.handle,
+                tag.suffix
             );
         }
     }

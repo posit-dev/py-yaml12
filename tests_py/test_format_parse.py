@@ -43,7 +43,6 @@ def test_format_yaml_preserves_tagged_values():
     assert reparsed.value["seq"].tag == "!seq"
 
 
-@pytest.mark.xfail(reason="Core-schema tags are currently preserved instead of dropped")
 def test_format_yaml_ignores_core_schema_handles():
     obj = Tagged(
         {
@@ -372,7 +371,6 @@ def test_parse_yaml_validates_handlers_argument():
         yaml12.parse_yaml("foo: !expr 1", handlers={"!expr": "not a function"})  # type: ignore[arg-type]
 
 
-@pytest.mark.xfail(reason="Canonical null tags currently surface as Tagged instead of None")
 def test_parse_yaml_resolves_canonical_null_tags():
     canonical_cases = [
         "!!null ~",
@@ -422,18 +420,21 @@ def test_parse_yaml_preserves_tagged_mapping_keys():
     )
 
     parsed = yaml12.parse_yaml(yaml)
-    assert isinstance(parsed, Tagged)
-    assert parsed.tag == "!custom"
-    assert isinstance(parsed.value, dict)
+    assert isinstance(parsed, dict)
 
-    key = next(iter(parsed.value.keys()))
+    key = next(iter(parsed.keys()))
     assert isinstance(key, Tagged)
     assert key.tag == "!custom"
     assert key.value == "foo"
-    assert parsed.value[key] == 1
+    assert parsed[key] == 1
 
     encoded = yaml12.format_yaml(parsed)
-    assert yaml12.parse_yaml(encoded) == parsed
+    reparsed = yaml12.parse_yaml(encoded)
+    assert reparsed == parsed
+    reparsed_key = next(iter(reparsed.keys()))
+    assert isinstance(reparsed_key, Tagged)
+    assert reparsed_key.tag == "!custom"
+    assert reparsed_key.value == "foo"
 
 
 def test_parse_yaml_roundtrip_newline_in_short_string():
