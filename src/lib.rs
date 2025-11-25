@@ -810,6 +810,14 @@ fn parse_tag_string(tag: &str) -> Result<Tag> {
         handle = YAML_CORE_HANDLE;
     }
 
+    // saphyr cannot emit a bare tag represented as handle="" / suffix="!".
+    // Normalize to handle="!" / suffix="" so round-tripping `!` works.
+    let (handle, suffix) = if handle.is_empty() && suffix == "!" {
+        ("!", "")
+    } else {
+        (handle, suffix)
+    };
+
     Ok(Tag {
         handle: handle.to_string(),
         suffix: suffix.to_string(),

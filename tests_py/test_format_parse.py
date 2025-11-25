@@ -437,6 +437,38 @@ def test_parse_yaml_preserves_tagged_mapping_keys():
     assert reparsed_key.value == "foo"
 
 
+def test_format_and_parse_roundtrip_non_specific_tag():
+    tagged = Tagged("value", "!")
+
+    yaml = yaml12.format_yaml(tagged)
+    assert yaml.startswith("! ")
+
+    reparsed = yaml12.parse_yaml(yaml)
+    assert isinstance(reparsed, Tagged)
+    assert reparsed.tag == "!"
+    assert reparsed.value == "value"
+
+
+def test_parse_yaml_canonical_string_tag_forms():
+    cases = [
+        ("!!str true", "true"),
+        ("!str true", Tagged("true", "!str")),
+        ("!<str> true", Tagged("true", "str")),
+        ("!<!str> true", Tagged("true", "!str")),
+        ("!<!!str> true", Tagged("true", "!!str")),
+        ("!<tag:yaml.org,2002:str> true", "true"),
+    ]
+
+    for yaml, expected in cases:
+        parsed = yaml12.parse_yaml(yaml)
+        if isinstance(expected, Tagged):
+            assert isinstance(parsed, Tagged), f"{yaml} should produce Tagged"
+            assert parsed.tag == expected.tag
+            assert parsed.value == expected.value
+        else:
+            assert parsed == expected, f"{yaml} should parse to {expected!r}"
+
+
 def test_parse_yaml_roundtrip_newline_in_short_string():
     original = {"foo": "bar!\nbar!", "baz": 42}
     round_tripped = yaml12.parse_yaml(yaml12.format_yaml(original))
