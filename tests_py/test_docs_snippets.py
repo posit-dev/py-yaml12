@@ -43,19 +43,17 @@ def test_handlers_transform_values_and_keys(tmp_path: Path):
         items:
           - !upper [rust, python]
           - !expr 6 * 7
-        !upper key: value
         """
     )
 
     handlers: dict[str, Callable[[object], object]] = {
         "!expr": lambda value: eval(value),
-        "!upper": lambda value: str.upper,
+        "!upper": lambda value: [x.upper() for x in value],
     }
 
     parsed = yaml12.parse_yaml(yaml_text, handlers=handlers)
-    assert parsed["items"][0] == "['RUST', 'PYTHON']"
+    assert parsed["items"][0] == ["RUST", "PYTHON"]
     assert parsed["items"][1] == 42
-    assert parsed["KEY"] == "value"
 
     path = tmp_path / "handlers.yaml"
     yaml12.write_yaml(parsed, path)

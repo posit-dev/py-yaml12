@@ -94,7 +94,7 @@ yaml_text = """
 
 handlers = {
     "!expr": lambda value: eval(value),
-    "!upper": str.upper,
+    "!upper": lambda value: [x.upper() for x in value],
 }
 
 doc = parse_yaml(yaml_text, handlers=handlers)

@@ -193,3 +193,16 @@ def test_non_specific_tag_scalar_with_handler_overrides_value():
     assert out == "handled:001"
     assert calls == ["001"]
     assert isinstance(calls[0], str)
+
+
+def test_non_specific_handler_used_with_large_registry():
+    calls = []
+    handlers = {
+        f"!h{idx}": (lambda value, idx=idx: f"{idx}:{value}") for idx in range(1, 9)
+    }
+    handlers["!"] = lambda value: calls.append(value) or f"non-specific:{value}"
+
+    out = yaml12.parse_yaml("! 42", handlers=handlers)
+
+    assert out == "non-specific:42"
+    assert calls == ["42"]

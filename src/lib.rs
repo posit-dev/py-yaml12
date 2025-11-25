@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::{
     PyAnyMethods, PyByteArray, PyBytes, PyDict, PyDictMethods, PyList, PyModule, PySequence,
-    PySequenceMethods, PyString,
+    PySequenceMethods, PyString, PyTuple,
 };
 use pyo3::Bound;
 use pyo3::IntoPyObjectExt;
@@ -22,6 +22,7 @@ use std::rc::Rc;
 type Result<T> = PyResult<T>;
 
 static YAML_CLASS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
+static ABC_TYPES: GILOnceCell<(Py<PyAny>, Py<PyAny>)> = GILOnceCell::new();
 const READ_CHUNK_SIZE: usize = 8192;
 
 fn pathlike_to_pathbuf(obj: &Bound<'_, PyAny>) -> Result<Option<PathBuf>> {
@@ -78,10 +79,6 @@ impl HandlerKeyOwned {
         }
     }
 
-    fn from_tag(tag: &Tag) -> Self {
-        Self::from_parts(tag.handle.as_str(), tag.suffix.as_str())
-    }
-
     fn is_non_specific(&self) -> bool {
         self.handle.is_empty() && self.suffix == "!"
     }
@@ -98,9 +95,11 @@ struct HandlerEntry {
     handler: Py<PyAny>,
 }
 
+type HandlerMap = HashMap<String, HashMap<String, Py<PyAny>>>;
+
 enum HandlerStore {
     Small(Vec<HandlerEntry>),
-    Large(HashMap<HandlerKeyOwned, Py<PyAny>>),
+    Large(HandlerMap),
 }
 
 struct HandlerRegistry {
@@ -131,7 +130,7 @@ impl HandlerRegistry {
         let mut non_specific: Option<Py<PyAny>> = None;
 
         if use_hash_map {
-            let mut handlers_map = HashMap::with_capacity(dict.len());
+            let mut handlers_map: HandlerMap = HashMap::with_capacity(dict.len());
             for (key_obj, value_obj) in dict.iter() {
                 let key_str = key_obj.downcast::<PyString>().map_err(|_| {
                     PyTypeError::new_err("handler keys must be strings or subclasses of str")
@@ -148,7 +147,10 @@ impl HandlerRegistry {
                 if key.is_non_specific() {
                     non_specific = Some(handler.clone_ref(py));
                 }
-                handlers_map.insert(key, handler);
+                handlers_map
+                    .entry(key.handle)
+                    .or_default()
+                    .insert(key.suffix, handler);
             }
             return Ok(Some(Self {
                 store: HandlerStore::Large(handlers_map),
@@ -197,10 +199,9 @@ impl HandlerRegistry {
                     .find(|entry| entry.key == key_ref)
                     .map(|entry| &entry.handler)
             }
-            HandlerStore::Large(map) => {
-                let lookup = HandlerKeyOwned::from_tag(tag);
-                map.get(&lookup)
-            }
+            HandlerStore::Large(map) => map
+                .get(tag.handle.as_str())
+                .and_then(|suffixes| suffixes.get(tag.suffix.as_str())),
         }
         .or_else(|| {
             if HandlerKeyRef::from(tag).is_non_specific() {
@@ -751,6 +752,16 @@ fn is_yaml_node(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
     }
 }
 
+fn abc_types(py: Python<'_>) -> Result<&(Py<PyAny>, Py<PyAny>)> {
+    ABC_TYPES.get_or_try_init(py, || -> Result<(Py<PyAny>, Py<PyAny>)> {
+        let abc = PyModule::import(py, "collections.abc")?;
+        Ok((
+            abc.getattr("Mapping")?.unbind(),
+            abc.getattr("Sequence")?.unbind(),
+        ))
+    })
+}
+
 fn should_wrap_in_mapping_key(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
     if is_yaml_node(py, obj)? {
         return Ok(false);
@@ -767,14 +778,12 @@ fn should_wrap_in_mapping_key(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<
         return Ok(false);
     }
 
-    let abc = PyModule::import(py, "collections.abc")?;
-    let mapping_cls = abc.getattr("Mapping")?;
-    if obj.is_instance(&mapping_cls)? {
+    let (mapping_cls, sequence_cls) = abc_types(py)?;
+    if obj.is_instance(mapping_cls.bind(py))? {
         return Ok(true);
     }
 
-    let sequence_cls = abc.getattr("Sequence")?;
-    if obj.is_instance(&sequence_cls)? {
+    if obj.is_instance(sequence_cls.bind(py))? {
         if obj.is_instance_of::<PyString>()
             || obj.is_instance_of::<PyBytes>()
             || obj.is_instance_of::<PyByteArray>()
@@ -1039,19 +1048,18 @@ fn emit_yaml_documents(docs: &[Yaml<'static>], multi: bool) -> Result<String> {
 
 fn format_yaml_impl(value: &Yaml<'static>, multi: bool) -> Result<String> {
     if multi {
-        let docs: Vec<Yaml<'static>> = match value {
-            Yaml::Sequence(seq) => seq.clone(),
-            Yaml::Value(Scalar::Null) => Vec::new(),
-            _ => {
-                return Err(PyTypeError::new_err(
-                    "`value` must be a sequence when `multi=True`",
-                ))
+        match value {
+            Yaml::Sequence(seq) => {
+                if seq.is_empty() {
+                    return Ok(String::from("---\n"));
+                }
+                emit_yaml_documents(seq, true)
             }
-        };
-        if docs.is_empty() {
-            return Ok(String::from("---\n"));
+            Yaml::Value(Scalar::Null) => Ok(String::from("---\n")),
+            _ => Err(PyTypeError::new_err(
+                "`value` must be a sequence when `multi=True`",
+            )),
         }
-        emit_yaml_documents(&docs, true)
     } else {
         emit_yaml_documents(std::slice::from_ref(value), false)
     }
@@ -1121,6 +1129,22 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
             mapping.insert(key_yaml, value_yaml);
         }
         return Ok(Yaml::Mapping(mapping));
+    }
+
+    if let Ok(list) = obj.downcast::<PyList>() {
+        let mut values = Vec::with_capacity(list.len());
+        for item in list.iter() {
+            values.push(py_to_yaml(py, &item, false)?);
+        }
+        return Ok(Yaml::Sequence(values));
+    }
+
+    if let Ok(tuple) = obj.downcast::<PyTuple>() {
+        let mut values = Vec::with_capacity(tuple.len());
+        for item in tuple.iter() {
+            values.push(py_to_yaml(py, &item, false)?);
+        }
+        return Ok(Yaml::Sequence(values));
     }
 
     if let Ok(seq) = obj.downcast::<PySequence>() {

@@ -128,7 +128,7 @@ Handlers run on keys too, so a handler can turn tagged keys into friendly
 Python keys before they are wrapped.
 
 ```python
-handlers = {"!upper": lambda value: str.upper}
+handlers = {"!upper": str.upper}
 result = parse_yaml("!upper key: value", handlers=handlers)
 assert result == {"KEY": "value"}
 ```

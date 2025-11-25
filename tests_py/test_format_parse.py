@@ -140,6 +140,15 @@ def test_format_yaml_multi_requires_sequence_argument():
         yaml12.format_yaml(1, multi=True)
 
 
+def test_format_yaml_accepts_tuple_for_multi():
+    docs = ({"foo": 1}, {"bar": [2, None]})
+
+    encoded = yaml12.format_yaml(docs, multi=True)
+    reparsed = yaml12.parse_yaml(encoded, multi=True)
+
+    assert reparsed == [dict(docs[0]), dict(docs[1])]
+
+
 def test_format_yaml_round_trips_non_string_keys():
     value = {1: "a", None: "c", 3.5: "d"}
 
