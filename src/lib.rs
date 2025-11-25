@@ -394,14 +394,16 @@ fn read_yaml(
 ///     'foo: 1\n'
 ///     >>> format_yaml(['first', 'second'], multi=True).endswith('...\n')
 ///     True
-fn format_yaml(py: Python<'_>, value: PyObject, multi: bool) -> Result<String> {
+fn format_yaml(py: Python<'_>, value: PyObject, multi: bool) -> Result<PyObject> {
     let bound = value.bind(py);
     let yaml = py_to_yaml(py, bound, false)?;
     let mut output = format_yaml_impl(&yaml, multi)?;
     if multi {
         output.push_str("...\n");
+        return PyString::new(py, output.as_str()).into_py_any(py);
     }
-    Ok(yaml_body(&output, multi).to_string())
+    let body = output.strip_prefix("---\n").unwrap_or(output.as_str());
+    PyString::new(py, body).into_py_any(py)
 }
 
 #[pyfunction(signature = (value, path=None, multi=false))]
@@ -845,14 +847,6 @@ fn render_tag(tag: &Tag) -> String {
     rendered.push_str(tag.handle.as_str());
     rendered.push_str(tag.suffix.as_str());
     rendered
-}
-
-fn yaml_body(yaml: &str, multi: bool) -> &str {
-    if multi || !yaml.starts_with("---\n") {
-        yaml
-    } else {
-        &yaml[4..]
-    }
 }
 
 struct PyReadIter<'py> {
