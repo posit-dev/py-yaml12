@@ -15,7 +15,9 @@ assert color.value == "red"
 assert color.tag == "!color"
 ```
 
-`Tagged` works for both scalar and collection nodes, including keys in mappings. You can serialize tagged values by passing a `Tagged` instance back into `format_yaml` or `write_yaml`.
+`Tagged` works for both scalar and collection nodes, including keys in mappings. You can serialize tagged values by passing a `Tagged` instance back into `format_yaml` or `write_yaml`. Non-specific tags (`!`) produce `Tagged("value", "!")` unless you supply a handler.
+
+Core scalar tags (`!!str`, `!!int`, `!!float`, `!!bool`, `!!null`, `!!seq`, `!!map`) are normalized to plain Python values instead of `Tagged`. Informative core tags (such as `!!timestamp`, `!!binary`, `!!set`, `!!omap`, or `!!pairs`) stay tagged so you can choose whether to handle them or preserve them verbatim. Invalid values for core tags raise `ValueError`.
 
 ## Handler functions
 
@@ -38,4 +40,4 @@ doc = parse_yaml("vertex: !point\n  x: 1\n  y: 2\n", handlers={"!point": point_h
 assert doc["vertex"] == Point(1, 2)
 ```
 
-Handlers apply to both values and keys. If a handler raises an exception, it propagates as-is to help debugging.
+Handlers apply to both values and keys, including non-specific `!` tags if you include a `"!"` entry. If a handler raises an exception, it propagates as-is to help debugging.

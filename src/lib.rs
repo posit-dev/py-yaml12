@@ -1240,11 +1240,13 @@ def _freeze(obj):
 
 @dataclass(frozen=True)
 class Tagged:
+    """Preserve a YAML tag alongside the parsed value."""
     value: object
     tag: str
 
 @dataclass(frozen=True)
 class MappingKey:
+    """Hashable wrapper for sequence/mapping/Tagged keys used in YAML mappings."""
     value: object
 
     def __post_init__(self):

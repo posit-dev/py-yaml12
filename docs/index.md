@@ -1,10 +1,10 @@
 # yaml12
 
-`yaml12` exposes the Rust-based `saphyr` YAML 1.2 parser and emitter to Python through a small, function-first API. The bindings keep conversions lean, support multi-document streams, and preserve non-core tags through a lightweight `Tagged` dataclass.
+`yaml12` exposes the Rust-based `saphyr` YAML 1.2 parser and emitter to Python through a small, function-first API. The bindings keep conversions lean, support multi-document streams, preserve non-core tags through a lightweight `Tagged` dataclass, and round-trip complex mapping keys via `MappingKey`.
 
-- Parse YAML text or files into familiar Python types with `parse_yaml` and `read_yaml`.
-- Serialize Python values back to YAML with `format_yaml` or write directly to disk/stdout with `write_yaml`.
-- Attach custom tag handlers to coerce tagged scalars, sequences, and mappings into domain objects.
+- Parse YAML text or files into familiar Python types with `parse_yaml` and `read_yaml`; handlers apply to both values and keys.
+- Serialize Python values back to YAML with `format_yaml` or write directly to disk/stdout with `write_yaml`, including non-core tags.
+- Round-trip non-scalar mapping keys using `MappingKey` to keep otherwise-unhashable keys stable.
 
 ## Installation
 
