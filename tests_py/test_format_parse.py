@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import math
 import textwrap
 from typing import Callable
@@ -8,6 +9,7 @@ import pytest
 
 import yaml12
 from yaml12 import Tagged
+import base64
 
 
 def test_format_yaml_round_trip_nested_structures():
@@ -41,6 +43,20 @@ def test_format_yaml_preserves_tagged_values():
     assert reparsed.value["scalar"].tag == "!expr"
     assert isinstance(reparsed.value["seq"], Tagged)
     assert reparsed.value["seq"].tag == "!seq"
+
+
+def test_format_yaml_preserves_binary_tags():
+    payload = base64.b64encode(b"hello world").decode("ascii")
+    tagged = Tagged(payload, "!!binary")
+
+    out = yaml12.format_yaml(tagged)
+
+    assert out.startswith("!!binary ")
+
+    reparsed = yaml12.parse_yaml(out)
+    assert isinstance(reparsed, Tagged)
+    assert reparsed.tag == "tag:yaml.org,2002:binary"
+    assert reparsed.value == payload
 
 
 def test_format_yaml_ignores_core_schema_handles():
@@ -292,6 +308,24 @@ def test_parse_yaml_preserves_custom_tags():
     assert nested["values"].value == [1, 2]
 
 
+def test_parse_yaml_preserves_timestamp_tags():
+    yaml = textwrap.dedent(
+        """\
+        - !!timestamp 2025-01-01
+        - !!timestamp 2025-01-01 21:59:43.10 -5
+        """
+    )
+    parsed = yaml12.parse_yaml(yaml)
+
+    assert isinstance(parsed, list)
+    assert len(parsed) == 2
+    expected_values = ["2025-01-01", "2025-01-01 21:59:43.10 -5"]
+    for item, expected in zip(parsed, expected_values):
+        assert isinstance(item, Tagged)
+        assert item.tag == "tag:yaml.org,2002:timestamp"
+        assert item.value == expected
+
+
 def test_parse_yaml_applies_handlers_to_tagged_nodes():
     handlers: dict[str, Callable[[object], object]] = {
         "!expr": lambda value: eval(str(value)),
@@ -374,18 +408,22 @@ def test_parse_yaml_validates_handlers_argument():
 def test_parse_yaml_resolves_canonical_null_tags():
     canonical_cases = [
         "!!null ~",
-        "!<!!null> ~",
         "!<tag:yaml.org,2002:null> ~",
-        "!<!null> ~",
     ]
     for yaml in canonical_cases:
         parsed = yaml12.parse_yaml(yaml)
         assert parsed is None
 
-    custom = yaml12.parse_yaml("!null ~")
-    assert isinstance(custom, Tagged)
-    assert custom.tag == "!null"
-    assert custom.value == "~"
+    informative_cases = {
+        "!<!!null> ~": "!!null",
+        "!<!null> ~": "!null",
+        "!null ~": "!null",
+    }
+    for yaml, expected_tag in informative_cases.items():
+        parsed = yaml12.parse_yaml(yaml)
+        assert isinstance(parsed, Tagged)
+        assert parsed.tag == expected_tag
+        assert parsed.value == "~"
 
 
 def test_parse_yaml_errors_on_invalid_canonical_tags():

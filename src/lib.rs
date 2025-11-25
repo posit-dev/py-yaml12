@@ -435,10 +435,7 @@ fn resolve_representation(node: &mut Yaml, _simplify: bool) {
 
     let parsed = match tag {
         Some(tag) => {
-            let is_core_schema = tag.is_yaml_core_schema();
-            let normalized_suffix = normalized_suffix(tag.suffix.as_str());
-
-            if is_core_schema {
+            if tag.is_yaml_core_schema() {
                 match tag.suffix.as_str() {
                     "str" => Yaml::value_from_cow_and_metadata(value, style, Some(&tag)),
                     "null" => {
@@ -466,8 +463,6 @@ fn resolve_representation(node: &mut Yaml, _simplify: bool) {
                         }
                     }
                 }
-            } else if is_effective_core_null(&tag, is_core_schema, normalized_suffix) {
-                Yaml::Value(Scalar::Null)
             } else {
                 Yaml::Tagged(tag, Box::new(Yaml::Value(Scalar::String(value))))
             }
@@ -586,17 +581,11 @@ fn convert_tagged(
         }
     }
 
-    let is_core_schema = tag.is_yaml_core_schema();
-    let normalized_suffix = normalized_suffix(tag.suffix.as_str());
-
-    if is_effective_core_null(tag, is_core_schema, normalized_suffix) {
-        return Ok(py.None());
-    }
-
     let value = yaml_to_py(py, node, is_key, handlers)?;
 
-    if is_core_schema {
-        return match tag.suffix.as_str() {
+    let normalized_suffix = normalized_suffix(tag.suffix.as_str());
+    if is_core_tag(tag) {
+        return match normalized_suffix {
             "str" | "null" | "bool" | "int" | "float" | "seq" | "map" => Ok(value),
             "timestamp" | "set" | "omap" | "pairs" | "binary" => {
                 let rendered = render_tag(tag);
@@ -633,11 +622,13 @@ fn is_core_null_tag(tag: &Tag) -> bool {
 }
 
 fn is_core_scalar_tag(tag: &Tag) -> bool {
-    tag.is_yaml_core_schema()
-        && matches!(
-            tag.suffix.as_str(),
-            "str" | "null" | "bool" | "int" | "float" | "seq" | "map"
-        )
+    if !is_core_tag(tag) {
+        return false;
+    }
+    matches!(
+        normalized_suffix(tag.suffix.as_str()),
+        "str" | "null" | "bool" | "int" | "float" | "seq" | "map"
+    )
 }
 
 fn normalized_suffix(suffix: &str) -> &str {
@@ -645,13 +636,10 @@ fn normalized_suffix(suffix: &str) -> &str {
     suffix.strip_prefix("tag:yaml.org,2002:").unwrap_or(suffix)
 }
 
-fn is_effective_core_null(tag: &Tag, is_core_schema: bool, normalized_suffix: &str) -> bool {
-    (is_core_schema && tag.suffix.as_str() == "null")
-        || (tag.handle.as_str() == "!!" && tag.suffix.as_str() == "null")
-        || (tag.handle.is_empty()
-            && normalized_suffix == "null"
-            && (tag.suffix.as_str().starts_with('!')
-                || tag.suffix.as_str().starts_with("tag:yaml.org,2002:")))
+fn is_core_tag(tag: &Tag) -> bool {
+    tag.is_yaml_core_schema()
+        || (tag.handle.as_str() == "!" && tag.suffix.as_str().starts_with('!'))
+        || (tag.handle.is_empty() && tag.suffix.as_str().starts_with("tag:yaml.org,2002:"))
 }
 
 fn render_tag(tag: &Tag) -> String {
@@ -790,38 +778,66 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
 }
 
 fn parse_tag_string(tag: &str) -> Result<Tag> {
-    const YAML_CORE_HANDLE: &str = "tag:yaml.org,2002:";
-
     let trimmed = tag.trim();
     if trimmed.is_empty() {
         return Err(PyValueError::new_err("tag must not be empty"));
     }
 
-    let Some((mut handle, mut suffix)) = split_tag_name(trimmed) else {
-        return Err(PyValueError::new_err(format!(
-            "invalid YAML tag `{trimmed}`"
-        )));
-    };
+    let invalid_tag_error = || PyValueError::new_err(format!("invalid YAML tag `{trimmed}`"));
 
-    if handle == "!!" {
-        handle = YAML_CORE_HANDLE;
-    } else if handle.is_empty() && suffix.starts_with(YAML_CORE_HANDLE) {
-        suffix = &suffix[YAML_CORE_HANDLE.len()..];
-        handle = YAML_CORE_HANDLE;
+    if !trimmed.contains('!') && !trimmed.contains(':') {
+        return Err(invalid_tag_error());
     }
+
+    let tag = if trimmed == "!" {
+        Tag {
+            handle: String::new(),
+            suffix: "!".to_string(),
+        }
+    } else if let Some(rest) = trimmed.strip_prefix("!!") {
+        if rest.is_empty() {
+            return Err(invalid_tag_error());
+        }
+        let mut suffix = String::with_capacity(rest.len() + 1);
+        suffix.push('!');
+        suffix.push_str(rest);
+        Tag {
+            handle: "!".to_string(),
+            suffix,
+        }
+    } else if let Some(rest) = trimmed.strip_prefix('!') {
+        if rest.is_empty() {
+            return Err(invalid_tag_error());
+        }
+        Tag {
+            handle: "!".to_string(),
+            suffix: rest.to_string(),
+        }
+    } else if let Some((handle, suffix)) = trimmed.rsplit_once('!') {
+        if suffix.is_empty() {
+            return Err(invalid_tag_error());
+        }
+        Tag {
+            handle: handle.to_string(),
+            suffix: suffix.to_string(),
+        }
+    } else {
+        Tag {
+            handle: String::new(),
+            suffix: trimmed.to_string(),
+        }
+    };
 
     // saphyr cannot emit a bare tag represented as handle="" / suffix="!".
     // Normalize to handle="!" / suffix="" so round-tripping `!` works.
-    let (handle, suffix) = if handle.is_empty() && suffix == "!" {
-        ("!", "")
+    if tag.handle.is_empty() && tag.suffix.as_str() == "!" {
+        Ok(Tag {
+            handle: "!".to_string(),
+            suffix: String::new(),
+        })
     } else {
-        (handle, suffix)
-    };
-
-    Ok(Tag {
-        handle: handle.to_string(),
-        suffix: suffix.to_string(),
-    })
+        Ok(tag)
+    }
 }
 
 fn is_tagged(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
