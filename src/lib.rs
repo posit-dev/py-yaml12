@@ -1007,7 +1007,7 @@ fn format_yaml_impl(value: &Yaml<'static>, multi: bool) -> Result<String> {
             }
         };
         if docs.is_empty() {
-            return Ok(String::new());
+            return Ok(String::from("---\n"));
         }
         emit_yaml_documents(&docs, true)
     } else {

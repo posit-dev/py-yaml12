@@ -104,6 +104,13 @@ def test_format_yaml_round_trips_multi_document_streams():
     assert yaml12.parse_yaml(encoded, multi=True) == docs
 
 
+def test_format_yaml_multi_empty_sequence_emits_empty_document():
+    encoded = yaml12.format_yaml([], multi=True)
+
+    assert encoded == "---\n...\n"
+    assert yaml12.parse_yaml(encoded, multi=True) == [None]
+
+
 def test_format_yaml_rejects_non_sequence_for_multi():
     with pytest.raises(TypeError, match="`value` must be a sequence when `multi=True`"):
         yaml12.format_yaml({"foo": 1}, multi=True)

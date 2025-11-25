@@ -54,6 +54,15 @@ def test_write_and_read_multi_document_streams(tmp_path: Path):
     assert yaml12.read_yaml(str(path), multi=True) == docs
 
 
+def test_write_yaml_multi_empty_sequence_emits_empty_document(tmp_path: Path):
+    path = tmp_path / "yaml12-empty-multi.yaml"
+
+    yaml12.write_yaml([], str(path), multi=True)
+
+    assert path.read_text(encoding="utf-8") == "---\n...\n"
+    assert yaml12.read_yaml(str(path), multi=True) == [None]
+
+
 def test_write_yaml_flushes_final_newline_for_files(tmp_path: Path):
     path = tmp_path / "yaml12-flush.yaml"
     value = {"foo": 1}
