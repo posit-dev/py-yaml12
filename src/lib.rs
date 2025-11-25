@@ -21,8 +21,7 @@ use std::rc::Rc;
 
 type Result<T> = PyResult<T>;
 
-static TAGGED_CLASS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
-static MAPPING_KEY_CLASS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
+static YAML_CLASS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
 const READ_CHUNK_SIZE: usize = 8192;
 
 fn pathlike_to_pathbuf(obj: &Bound<'_, PyAny>) -> Result<Option<PathBuf>> {
@@ -254,7 +253,7 @@ fn split_tag_name(name: &str) -> Option<(&str, &str)> {
 ///     handlers (dict[str, Callable] | None): Optional tag handlers for values and keys; matching handlers receive the parsed value.
 ///
 /// Returns:
-///     object: Parsed value(s); non-core tags become Tagged when no handler matches.
+///     object: Parsed value(s); tagged nodes become `Yaml` when no handler matches or when used for unhashable mapping keys.
 ///
 /// Raises:
 ///     ValueError: On YAML parse errors or invalid tag strings.
@@ -323,7 +322,7 @@ fn parse_yaml(
 ///     handlers (dict[str, Callable] | None): Optional tag handlers for values and keys; matching handlers receive the parsed value.
 ///
 /// Returns:
-///     object: Parsed value(s); non-core tags become Tagged when no handler matches.
+///     object: Parsed value(s); tagged nodes become `Yaml` when no handler matches or when used for unhashable mapping keys.
 ///
 /// Raises:
 ///     IOError: When the file cannot be read.
@@ -380,7 +379,7 @@ fn read_yaml(
 /// Serialize a Python value to a YAML string.
 ///
 /// Args:
-///     value (object): Python value or Tagged to serialize; for `multi` the value must be a sequence of documents.
+///     value (object): Python value or Yaml to serialize; for `multi` the value must be a sequence of documents.
 ///     multi (bool): Emit a multi-document stream when true; otherwise a single document.
 ///
 /// Returns:
@@ -408,7 +407,7 @@ fn format_yaml(py: Python<'_>, value: PyObject, multi: bool) -> Result<String> {
 /// Write a Python value to YAML at `path` or stdout.
 ///
 /// Args:
-///     value (object): Python value or Tagged to serialize; for `multi` the value must be a sequence of documents.
+///     value (object): Python value or Yaml to serialize; for `multi` the value must be a sequence of documents.
 ///     path (str | os.PathLike | file-like | None): Destination path or object with `.write()`; when None the YAML is written to stdout.
 ///     multi (bool): Emit a multi-document stream when true; otherwise a single document.
 ///
@@ -718,7 +717,7 @@ fn convert_tagged(
             "str" | "null" | "bool" | "int" | "float" | "seq" | "map" => Ok(value),
             "timestamp" | "set" | "omap" | "pairs" | "binary" => {
                 let rendered = render_tag(tag);
-                make_tagged(py, value, &rendered)
+                make_yaml_node(py, value, Some(&rendered))
             }
             _ => {
                 let rendered = render_tag(tag);
@@ -730,25 +729,22 @@ fn convert_tagged(
     }
 
     let rendered = render_tag(tag);
-    make_tagged(py, value, &rendered)
+    make_yaml_node(py, value, Some(&rendered))
 }
 
-fn make_tagged(py: Python<'_>, value: PyObject, tag: &str) -> Result<PyObject> {
-    let cls = TAGGED_CLASS
+fn make_yaml_node(py: Python<'_>, value: PyObject, tag: Option<&str>) -> Result<PyObject> {
+    let cls = YAML_CLASS
         .get(py)
-        .ok_or_else(|| PyValueError::new_err("Tagged class is not initialized"))?;
-    cls.bind(py).call1((value, tag)).map(|obj| obj.into())
+        .ok_or_else(|| PyValueError::new_err("Yaml class is not initialized"))?;
+    if let Some(tag) = tag {
+        cls.bind(py).call1((value, tag)).map(|obj| obj.into())
+    } else {
+        cls.bind(py).call1((value,)).map(|obj| obj.into())
+    }
 }
 
-fn make_mapping_key(py: Python<'_>, value: PyObject) -> Result<PyObject> {
-    let cls = MAPPING_KEY_CLASS
-        .get(py)
-        .ok_or_else(|| PyValueError::new_err("MappingKey class is not initialized"))?;
-    cls.bind(py).call1((value,)).map(|obj| obj.into())
-}
-
-fn is_mapping_key(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
-    if let Some(cls) = MAPPING_KEY_CLASS.get(py) {
+fn is_yaml_node(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
+    if let Some(cls) = YAML_CLASS.get(py) {
         obj.is_instance(cls.bind(py))
     } else {
         Ok(false)
@@ -756,15 +752,12 @@ fn is_mapping_key(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
 }
 
 fn should_wrap_in_mapping_key(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
-    if obj.is_instance_of::<PyDict>() || obj.is_instance_of::<PyList>() {
-        return Ok(true);
+    if is_yaml_node(py, obj)? {
+        return Ok(false);
     }
 
-    if let Some(tagged_cls) = TAGGED_CLASS.get(py) {
-        if obj.is_instance(tagged_cls.bind(py))? {
-            let value = obj.getattr("value")?;
-            return should_wrap_in_mapping_key(py, &value);
-        }
+    if obj.is_instance_of::<PyDict>() || obj.is_instance_of::<PyList>() {
+        return Ok(true);
     }
 
     if obj.is_instance_of::<PyString>()
@@ -798,7 +791,7 @@ fn ensure_hashable_mapping_key(py: Python<'_>, key_obj: PyObject) -> Result<PyOb
     let bound = key_obj.bind(py);
     if let Err(err) = bound.hash() {
         if err.is_instance_of::<PyTypeError>(py) && should_wrap_in_mapping_key(py, bound)? {
-            let wrapped = make_mapping_key(py, key_obj)?;
+            let wrapped = make_yaml_node(py, key_obj, None)?;
             wrapped.bind(py).hash()?;
             return Ok(wrapped);
         }
@@ -1080,9 +1073,20 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
         return Ok(Yaml::Value(Scalar::Null));
     }
 
-    if is_mapping_key(py, obj)? {
-        let value = obj.getattr("value")?;
-        return py_to_yaml(py, &value, is_key);
+    if is_yaml_node(py, obj)? {
+        let value_obj = obj.getattr("value")?;
+        let tag_obj = obj.getattr("tag")?;
+        if tag_obj.is_none() {
+            return py_to_yaml(py, &value_obj, is_key);
+        }
+        let tag_str = tag_obj.downcast::<PyString>()?.to_str()?;
+        let tag = parse_tag_string(tag_str)?;
+        let inner = py_to_yaml(py, &value_obj, is_key)?;
+        return if is_core_scalar_tag(&tag) {
+            Ok(inner)
+        } else {
+            Ok(Yaml::Tagged(Cow::Owned(tag), Box::new(inner)))
+        };
     }
 
     if let Ok(b) = obj.extract::<bool>() {
@@ -1107,19 +1111,6 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
         return Ok(Yaml::Value(Scalar::String(Cow::Owned(
             s.to_str()?.to_owned(),
         ))));
-    }
-
-    if is_tagged(py, obj)? {
-        let value_obj = obj.getattr("value")?;
-        let tag_obj = obj.getattr("tag")?;
-        let tag_str = tag_obj.downcast::<PyString>()?.to_str()?;
-        let tag = parse_tag_string(tag_str)?;
-        let inner = py_to_yaml(py, &value_obj, is_key)?;
-        return if is_core_scalar_tag(&tag) {
-            Ok(inner)
-        } else {
-            Ok(Yaml::Tagged(Cow::Owned(tag), Box::new(inner)))
-        };
     }
 
     if let Ok(dict) = obj.downcast::<PyDict>() {
@@ -1213,25 +1204,15 @@ fn parse_tag_string(tag: &str) -> Result<Tag> {
     }
 }
 
-fn is_tagged(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
-    if let Some(cls) = TAGGED_CLASS.get(py) {
-        obj.is_instance(cls.bind(py))
-    } else {
-        Ok(false)
-    }
-}
-
 fn init_python_helpers(py: Python<'_>, module: &Bound<'_, PyModule>) -> Result<()> {
-    let tagged_cls = TAGGED_CLASS.get_or_try_init(py, || -> Result<Py<PyAny>> {
+    YAML_CLASS.get_or_try_init(py, || -> Result<Py<PyAny>> {
         let code = r#"
 from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 
 def _freeze(obj):
-    if isinstance(obj, MappingKey):
-        return obj._frozen
-    if isinstance(obj, Tagged):
-        return ("tagged", obj.tag, _freeze(obj.value))
+    if isinstance(obj, Yaml):
+        return ("yaml", obj.tag, _freeze(obj.value))
     if isinstance(obj, Mapping):
         return ("map", tuple(sorted((_freeze(k), _freeze(v)) for k, v in obj.items())))
     if isinstance(obj, Sequence) and not isinstance(obj, (str, bytes, bytearray)):
@@ -1239,18 +1220,13 @@ def _freeze(obj):
     return obj
 
 @dataclass(frozen=True)
-class Tagged:
-    """Preserve a YAML tag alongside the parsed value."""
+class Yaml:
+    """Tagged node or hashable wrapper for unhashable mapping keys."""
     value: object
-    tag: str
-
-@dataclass(frozen=True)
-class MappingKey:
-    """Hashable wrapper for sequence/mapping/Tagged keys used in YAML mappings."""
-    value: object
+    tag: str | None = None
 
     def __post_init__(self):
-        frozen = _freeze(self.value)
+        frozen = ("tagged", self.tag, _freeze(self.value))
         object.__setattr__(self, "_frozen", frozen)
         object.__setattr__(self, "_hash", hash(frozen))
 
@@ -1258,12 +1234,12 @@ class MappingKey:
         return self._hash
 
     def __eq__(self, other):
-        if not isinstance(other, MappingKey):
+        if not isinstance(other, Yaml):
             return NotImplemented
         return self._frozen == other._frozen
 
     def _proxy_target(self):
-        target = self.value.value if isinstance(self.value, Tagged) else self.value
+        target = self.value.value if isinstance(self.value, Yaml) else self.value
         if isinstance(target, (Mapping, Sequence)) and not isinstance(
             target, (str, bytes, bytearray)
         ):
@@ -1274,22 +1250,26 @@ class MappingKey:
         target = self._proxy_target()
         if target is not None:
             return target[key]
-        raise TypeError("MappingKey.value does not support indexing")
+        raise TypeError("Yaml.value does not support indexing")
 
     def __iter__(self):
         target = self._proxy_target()
         if target is not None:
             return iter(target)
-        raise TypeError("MappingKey.value is not iterable")
+        raise TypeError("Yaml.value is not iterable")
 
     def __len__(self):
         target = self._proxy_target()
         if target is not None:
             return len(target)
-        raise TypeError("MappingKey.value has no len()")
+        raise TypeError("Yaml.value has no len()")
 
     def __repr__(self):
-        return f"MappingKey({self.value!r})"
+        tag = f"{self.tag!r}, " if self.tag is not None else ""
+        return f"Yaml({tag}{self.value!r})"
+
+Tagged = Yaml
+MappingKey = Yaml
 "#;
         let filename = CString::new("py_helpers.py").unwrap();
         let modname = CString::new("py_helpers").unwrap();
@@ -1300,20 +1280,16 @@ class MappingKey:
             filename.as_c_str(),
             modname.as_c_str(),
         )?;
-        let tagged_cls = helpers_mod.getattr("Tagged")?;
-        let mapping_key_cls = helpers_mod.getattr("MappingKey")?;
-
-        MAPPING_KEY_CLASS
-            .get_or_try_init(py, || -> Result<Py<PyAny>> { Ok(mapping_key_cls.unbind()) })?;
-
-        Ok(tagged_cls.unbind())
+        let yaml_cls = helpers_mod.getattr("Yaml")?;
+        Ok(yaml_cls.unbind())
     })?;
 
-    let mapping_key_cls = MAPPING_KEY_CLASS
+    let yaml_cls = YAML_CLASS
         .get(py)
-        .ok_or_else(|| PyValueError::new_err("MappingKey class is not initialized"))?;
-    module.add("Tagged", tagged_cls.clone_ref(py))?;
-    module.add("MappingKey", mapping_key_cls.clone_ref(py))?;
+        .ok_or_else(|| PyValueError::new_err("Yaml class is not initialized"))?;
+    module.add("Yaml", yaml_cls.clone_ref(py))?;
+    module.add("Tagged", yaml_cls.clone_ref(py))?;
+    module.add("MappingKey", yaml_cls.clone_ref(py))?;
     Ok(())
 }
 

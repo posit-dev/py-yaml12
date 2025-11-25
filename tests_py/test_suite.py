@@ -47,7 +47,7 @@ def _parse_json_stream(text: str):
 
 
 def _strip_tags(obj):
-    if isinstance(obj, yaml12.Tagged):
+    if isinstance(obj, yaml12.Yaml):
         if obj.tag == "!":
             return str(obj.value)
         return _strip_tags(obj.value)

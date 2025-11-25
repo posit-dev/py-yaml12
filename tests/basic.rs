@@ -66,20 +66,20 @@ fn preserves_non_core_tags() -> PyResult<()> {
         let module = init_module(py)?;
         let parse_yaml = module.getattr("parse_yaml")?;
         let format_yaml = module.getattr("format_yaml")?;
-        let tagged_cls = module.getattr("Tagged")?;
+        let yaml_cls = module.getattr("Yaml")?;
 
-        // Parsing produces Tagged for non-core tags.
+        // Parsing produces Yaml nodes for non-core tags.
         let parsed = parse_yaml.call1(("!foo 1",))?;
-        assert!(parsed.is_instance(&tagged_cls)?);
+        assert!(parsed.is_instance(&yaml_cls)?);
         assert_eq!(parsed.getattr("tag")?.extract::<String>()?, "!foo");
         assert_eq!(parsed.getattr("value")?.extract::<String>()?, "1");
 
-        // Formatting a Tagged should emit the tag and round-trip.
-        let tagged = tagged_cls.call1((2, "!bar"))?;
+        // Formatting a tagged node should emit the tag and round-trip.
+        let tagged = yaml_cls.call1((2, "!bar"))?;
         let yaml = format_yaml.call1((tagged,))?.extract::<String>()?;
         assert!(yaml.starts_with("!bar "));
         let reparsed = parse_yaml.call1((yaml.as_str(),))?;
-        assert!(reparsed.is_instance(&tagged_cls)?);
+        assert!(reparsed.is_instance(&yaml_cls)?);
         assert_eq!(reparsed.getattr("tag")?.extract::<String>()?, "!bar");
         assert_eq!(reparsed.getattr("value")?.extract::<String>()?, "2");
         Ok(())

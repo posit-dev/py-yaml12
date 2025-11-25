@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import yaml12
-from yaml12 import Tagged
+from yaml12 import Yaml
 
 
 def test_format_yaml_round_trip_nested_structures():
@@ -22,10 +22,10 @@ def test_format_yaml_round_trip_nested_structures():
 
 
 def test_format_yaml_preserves_tagged_values():
-    obj = Tagged(
+    obj = Yaml(
         {
-            "scalar": Tagged("bar", "!expr"),
-            "seq": Tagged([1, 2], "!seq"),
+            "scalar": Yaml("bar", "!expr"),
+            "seq": Yaml([1, 2], "!seq"),
         },
         "!custom",
     )
@@ -37,33 +37,33 @@ def test_format_yaml_preserves_tagged_values():
     assert "!seq" in encoded
 
     reparsed = yaml12.parse_yaml(encoded)
-    assert isinstance(reparsed, Tagged)
+    assert isinstance(reparsed, Yaml)
     assert reparsed.tag == "!custom"
-    assert isinstance(reparsed.value["scalar"], Tagged)
+    assert isinstance(reparsed.value["scalar"], Yaml)
     assert reparsed.value["scalar"].tag == "!expr"
-    assert isinstance(reparsed.value["seq"], Tagged)
+    assert isinstance(reparsed.value["seq"], Yaml)
     assert reparsed.value["seq"].tag == "!seq"
 
 
 def test_format_yaml_preserves_binary_tags():
     payload = base64.b64encode(b"hello world").decode("ascii")
-    tagged = Tagged(payload, "!!binary")
+    tagged = Yaml(payload, "!!binary")
 
     out = yaml12.format_yaml(tagged)
 
     assert out.startswith("!!binary ")
 
     reparsed = yaml12.parse_yaml(out)
-    assert isinstance(reparsed, Tagged)
+    assert isinstance(reparsed, Yaml)
     assert reparsed.tag == "tag:yaml.org,2002:binary"
     assert reparsed.value == payload
 
 
 def test_format_yaml_ignores_core_schema_handles():
-    obj = Tagged(
+    obj = Yaml(
         {
-            "scalar": Tagged("bar", "!!seq"),
-            "seq": Tagged([1, 2], "!!map"),
+            "scalar": Yaml("bar", "!!seq"),
+            "seq": Yaml([1, 2], "!!map"),
         },
         "!custom",
     )
@@ -77,10 +77,10 @@ def test_format_yaml_ignores_core_schema_handles():
     assert "!custom" in encoded
 
     reparsed = yaml12.parse_yaml(encoded)
-    assert isinstance(reparsed, Tagged)
+    assert isinstance(reparsed, Yaml)
     assert reparsed.tag == "!custom"
-    assert not isinstance(reparsed.value["scalar"], Tagged)
-    assert not isinstance(reparsed.value["seq"], Tagged)
+    assert not isinstance(reparsed.value["scalar"], Yaml)
+    assert not isinstance(reparsed.value["seq"], Yaml)
 
 
 def test_format_yaml_round_trips_multi_document_streams():
@@ -126,13 +126,13 @@ def test_format_yaml_single_doc_has_no_header_or_trailing_newline():
 
 def test_format_yaml_validates_tagged_inputs():
     with pytest.raises(ValueError, match="tag must not be empty"):
-        yaml12.format_yaml(Tagged("value", ""))
+        yaml12.format_yaml(Yaml("value", ""))
 
     with pytest.raises(ValueError, match="invalid YAML tag"):
-        yaml12.format_yaml(Tagged("value", "abc"))
+        yaml12.format_yaml(Yaml("value", "abc"))
 
     with pytest.raises(TypeError):
-        yaml12.format_yaml(Tagged("value", 123))  # type: ignore[arg-type]
+        yaml12.format_yaml(Yaml("value", 123))  # type: ignore[arg-type]
 
 
 def test_format_yaml_multi_requires_sequence_argument():
@@ -180,7 +180,7 @@ def test_format_yaml_preserves_empty_and_null_keys():
 
 def test_format_yaml_rejects_invalid_tag_strings():
     with pytest.raises(ValueError, match="invalid YAML tag"):
-        yaml12.format_yaml(Tagged("value", "!!"))
+        yaml12.format_yaml(Yaml("value", "!!"))
 
 
 def test_parse_yaml_scalars():
@@ -363,12 +363,12 @@ def test_parse_yaml_handles_trailing_newline():
 
 def test_parse_yaml_preserves_custom_tags():
     tagged = yaml12.parse_yaml("!custom 3")
-    assert isinstance(tagged, Tagged)
+    assert isinstance(tagged, Yaml)
     assert tagged.tag == "!custom"
     assert tagged.value == "3"
 
     nested = yaml12.parse_yaml("values: !seq [1, 2]")
-    assert isinstance(nested["values"], Tagged)
+    assert isinstance(nested["values"], Yaml)
     assert nested["values"].tag == "!seq"
     assert nested["values"].value == [1, 2]
 
@@ -386,7 +386,7 @@ def test_parse_yaml_preserves_timestamp_tags():
     assert len(parsed) == 2
     expected_values = ["2025-01-01", "2025-01-01 21:59:43.10 -5"]
     for item, expected in zip(parsed, expected_values):
-        assert isinstance(item, Tagged)
+        assert isinstance(item, Yaml)
         assert item.tag == "tag:yaml.org,2002:timestamp"
         assert item.value == expected
 
@@ -486,7 +486,7 @@ def test_parse_yaml_resolves_canonical_null_tags():
     }
     for yaml, expected_tag in informative_cases.items():
         parsed = yaml12.parse_yaml(yaml)
-        assert isinstance(parsed, Tagged)
+        assert isinstance(parsed, Yaml)
         assert parsed.tag == expected_tag
         assert parsed.value == "~"
 
@@ -526,7 +526,7 @@ def test_parse_yaml_preserves_tagged_mapping_keys():
     assert isinstance(parsed, dict)
 
     key = next(iter(parsed.keys()))
-    assert isinstance(key, Tagged)
+    assert isinstance(key, Yaml)
     assert key.tag == "!custom"
     assert key.value == "foo"
     assert parsed[key] == 1
@@ -535,19 +535,19 @@ def test_parse_yaml_preserves_tagged_mapping_keys():
     reparsed = yaml12.parse_yaml(encoded)
     assert reparsed == parsed
     reparsed_key = next(iter(reparsed.keys()))
-    assert isinstance(reparsed_key, Tagged)
+    assert isinstance(reparsed_key, Yaml)
     assert reparsed_key.tag == "!custom"
     assert reparsed_key.value == "foo"
 
 
 def test_format_and_parse_roundtrip_non_specific_tag():
-    tagged = Tagged("value", "!")
+    tagged = Yaml("value", "!")
 
     yaml = yaml12.format_yaml(tagged)
     assert yaml.startswith("! ")
 
     reparsed = yaml12.parse_yaml(yaml)
-    assert isinstance(reparsed, Tagged)
+    assert isinstance(reparsed, Yaml)
     assert reparsed.tag == "!"
     assert reparsed.value == "value"
 
@@ -555,17 +555,17 @@ def test_format_and_parse_roundtrip_non_specific_tag():
 def test_parse_yaml_canonical_string_tag_forms():
     cases = [
         ("!!str true", "true"),
-        ("!str true", Tagged("true", "!str")),
-        ("!<str> true", Tagged("true", "str")),
-        ("!<!str> true", Tagged("true", "!str")),
-        ("!<!!str> true", Tagged("true", "!!str")),
+        ("!str true", Yaml("true", "!str")),
+        ("!<str> true", Yaml("true", "str")),
+        ("!<!str> true", Yaml("true", "!str")),
+        ("!<!!str> true", Yaml("true", "!!str")),
         ("!<tag:yaml.org,2002:str> true", "true"),
     ]
 
     for yaml, expected in cases:
         parsed = yaml12.parse_yaml(yaml)
-        if isinstance(expected, Tagged):
-            assert isinstance(parsed, Tagged), f"{yaml} should produce Tagged"
+        if isinstance(expected, Yaml):
+            assert isinstance(parsed, Yaml), f"{yaml} should produce Yaml"
             assert parsed.tag == expected.tag
             assert parsed.value == expected.value
         else:

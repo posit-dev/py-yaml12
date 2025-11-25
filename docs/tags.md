@@ -2,22 +2,22 @@
 
 YAML 1.2 allows tagging values with custom semantics. `yaml12` preserves those tags by default and lets you plug in your own coercions.
 
-## Tagged wrapper
+## Yaml wrapper
 
-Non-core tags that do not have a matching handler are wrapped in a frozen `Tagged` dataclass:
+Non-core tags that do not have a matching handler are wrapped in a frozen `Yaml` dataclass (also exported as `Tagged`):
 
 ```python
-from yaml12 import Tagged, parse_yaml
+from yaml12 import Yaml, parse_yaml
 
 color = parse_yaml("!color red")
-assert isinstance(color, Tagged)
+assert isinstance(color, Yaml)
 assert color.value == "red"
 assert color.tag == "!color"
 ```
 
-`Tagged` works for both scalar and collection nodes, including keys in mappings. You can serialize tagged values by passing a `Tagged` instance back into `format_yaml` or `write_yaml`. Non-specific tags (`!`) produce `Tagged("value", "!")` unless you supply a handler. Tagged scalar keys stay plain `Tagged`; tagged collections are wrapped in `MappingKey(Tagged(...))` so they remain hashable.
+`Yaml` works for both scalar and collection nodes, including keys in mappings. You can serialize tagged values by passing a `Yaml` instance back into `format_yaml` or `write_yaml`. Non-specific tags (`!`) produce `Yaml("value", "!")` unless you supply a handler. Tagged scalar keys become `Yaml(value, tag)`; tagged collections and untagged collections used as keys are wrapped in `Yaml(value, tag)` (with `tag=None` for untagged collections).
 
-Core scalar tags (`!!str`, `!!int`, `!!float`, `!!bool`, `!!null`, `!!seq`, `!!map`) are normalized to plain Python values instead of `Tagged`. Informative core tags (such as `!!timestamp`, `!!binary`, `!!set`, `!!omap`, or `!!pairs`) stay tagged so you can choose whether to handle them or preserve them verbatim. Invalid values for core tags raise `ValueError`.
+Core scalar tags (`!!str`, `!!int`, `!!float`, `!!bool`, `!!null`, `!!seq`, `!!map`) are normalized to plain Python values instead of `Yaml`. Informative core tags (such as `!!timestamp`, `!!binary`, `!!set`, `!!omap`, or `!!pairs`) stay tagged so you can choose whether to handle them or preserve them verbatim. Invalid values for core tags raise `ValueError`.
 
 ## Handler functions
 

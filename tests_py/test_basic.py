@@ -20,10 +20,10 @@ def test_multi_roundtrip():
 
 
 def test_tagged_roundtrip():
-    tagged = yaml12.Tagged(5, "!custom")
+    tagged = yaml12.Yaml(5, "!custom")
     text = yaml12.format_yaml(tagged)
     assert text.startswith("!custom")
     reparsed = yaml12.parse_yaml(text)
-    assert isinstance(reparsed, yaml12.Tagged)
+    assert isinstance(reparsed, yaml12.Yaml)
     assert reparsed.tag == "!custom"
     assert reparsed.value == "5"

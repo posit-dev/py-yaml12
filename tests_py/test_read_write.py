@@ -230,7 +230,7 @@ def test_read_yaml_keeps_tagged_sequence_elements(tmp_path: Path):
     result = yaml12.read_yaml(str(path))
     first = result[0]
 
-    assert isinstance(first, yaml12.Tagged)
+    assert isinstance(first, yaml12.Yaml)
     assert first.tag == "!foo"
     assert first.value == "1"
 

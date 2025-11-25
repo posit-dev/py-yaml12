@@ -13,10 +13,10 @@ class CustomError(Exception):
 
 
 def _apply_tag_handlers(obj: object, handlers: dict[str, object]):
-    """Walk a parsed YAML tree and invoke handlers for Tagged nodes."""
-    if isinstance(obj, yaml12.Tagged):
+    """Walk a parsed YAML tree and invoke handlers for tagged Yaml nodes."""
+    if isinstance(obj, yaml12.Yaml):
         inner = _apply_tag_handlers(obj.value, handlers)
-        tagged = yaml12.Tagged(inner, obj.tag)
+        tagged = yaml12.Yaml(inner, obj.tag)
         handler = handlers.get(obj.tag)
         return handler(tagged) if handler else tagged
     if isinstance(obj, list):
@@ -30,8 +30,8 @@ def _apply_tag_handlers(obj: object, handlers: dict[str, object]):
 
 
 def _assert_no_tagged(obj: object):
-    if isinstance(obj, yaml12.Tagged):
-        raise AssertionError(f"unexpected Tagged value: {obj}")
+    if isinstance(obj, yaml12.Yaml):
+        raise AssertionError(f"unexpected Yaml value: {obj}")
     if isinstance(obj, list):
         for item in obj:
             _assert_no_tagged(item)
@@ -114,9 +114,9 @@ start_at: !ts 2024-11-22T18:30:00Z
 : !env CONF
 """
     raw = yaml12.parse_yaml(text)
-    assert isinstance(raw["workdir"], yaml12.Tagged)
-    assert any(isinstance(k, yaml12.Tagged) for k in raw["paths"].keys())
-    assert isinstance(raw["config"][0], yaml12.Tagged)
+    assert isinstance(raw["workdir"], yaml12.Yaml)
+    assert any(isinstance(k, yaml12.Yaml) for k in raw["paths"].keys())
+    assert isinstance(raw["config"][0], yaml12.Yaml)
 
     handlers = {
         "!path": lambda tagged: Path(tagged.value),
@@ -160,7 +160,7 @@ def test_handler_exception_passes_through_for_key():
 def test_tagged_scalar_preserves_string_value():
     out = yaml12.parse_yaml("!foo 001")
 
-    assert isinstance(out, yaml12.Tagged)
+    assert isinstance(out, yaml12.Yaml)
     assert out.tag == "!foo"
     assert out.value == "001"
     assert isinstance(out.value, str)
@@ -169,7 +169,7 @@ def test_tagged_scalar_preserves_string_value():
 def test_non_specific_tag_scalar_returns_tagged_without_handler():
     out = yaml12.parse_yaml("! 001")
 
-    assert isinstance(out, yaml12.Tagged)
+    assert isinstance(out, yaml12.Yaml)
     assert out.tag == "!"
     assert out.value == "001"
     assert isinstance(out.value, str)
