@@ -134,6 +134,38 @@ def test_read_yaml_streaming_read_error_propagates():
         yaml12.read_yaml(_ErroringReader())
 
 
+def test_read_yaml_connection_empty_respects_multi_flag():
+    buf = io.StringIO("")
+    assert yaml12.read_yaml(buf) is None
+    buf_multi = io.StringIO("")
+    assert yaml12.read_yaml(buf_multi, multi=True) == []
+
+
+def test_read_yaml_streaming_chunk_size_one(tmp_path: Path):
+    items = list(range(5000))
+    yaml_text = "".join(f"- {i}\n" for i in items)
+    path = tmp_path / "chunks-str-one.yaml"
+    path.write_text(yaml_text, encoding="utf-8")
+    reader = _ChunkReader(path, chunk_size=1)
+    try:
+        parsed = yaml12.read_yaml(reader)
+        assert parsed == items
+    finally:
+        reader.close()
+
+
+def test_read_yaml_streaming_multi_documents(tmp_path: Path):
+    yaml_text = "---\nfoo: 1\n---\nbar: [1, 2, 3]\n"
+    path = tmp_path / "chunks-multi.yaml"
+    path.write_text(yaml_text, encoding="utf-8")
+    reader = _ChunkReader(path, chunk_size=2)
+    try:
+        parsed = yaml12.read_yaml(reader, multi=True)
+        assert parsed == [{"foo": 1}, {"bar": [1, 2, 3]}]
+    finally:
+        reader.close()
+
+
 def test_read_yaml_streaming_bad_type_error():
     with pytest.raises(TypeError, match="str or bytes"):
         yaml12.read_yaml(_BadTypeReader())
@@ -142,6 +174,18 @@ def test_read_yaml_streaming_bad_type_error():
 def test_read_yaml_streaming_midway_error():
     with pytest.raises(RuntimeError, match="boom later"):
         yaml12.read_yaml(_ErroringReaderAfterFirst(), multi=True)
+
+
+def test_read_yaml_accepts_pathlike(tmp_path: Path):
+    path = tmp_path / "pathlike-read.yaml"
+    path.write_text("foo: 1\n", encoding="utf-8")
+
+    class PathLike:
+        def __fspath__(self):
+            return str(path)
+
+    assert yaml12.read_yaml(path) == {"foo": 1}
+    assert yaml12.read_yaml(PathLike()) == {"foo": 1}
 
 
 def test_read_yaml_does_not_simplify_mixed_type_sequences(tmp_path: Path):
@@ -236,6 +280,26 @@ def test_write_yaml_bytes_writer_after_str_failure():
     assert sink.calls == 2  # first str write fails, second bytes write succeeds
     expected = f"---\n{yaml12.format_yaml(value)}\n...\n".encode()
     assert bytes(sink.data) == expected
+
+
+def test_write_yaml_accepts_pathlike(tmp_path: Path):
+    value = {"foo": 1}
+    path_from_path = tmp_path / "writer-path.yaml"
+    path_from_fspath = tmp_path / "writer-fspath.yaml"
+
+    class PathLike:
+        def __init__(self, path: Path):
+            self.path = path
+
+        def __fspath__(self):
+            return str(self.path)
+
+    yaml12.write_yaml(value, path_from_path)
+    yaml12.write_yaml(value, PathLike(path_from_fspath))
+
+    expected = f"---\n{yaml12.format_yaml(value)}\n...\n"
+    assert path_from_path.read_text(encoding="utf-8") == expected
+    assert path_from_fspath.read_text(encoding="utf-8") == expected
 
 
 def test_write_yaml_multi_to_custom_writer():

@@ -5,13 +5,11 @@ import math
 import textwrap
 from typing import Callable
 from pathlib import Path
-import tempfile
 
 import pytest
 
 import yaml12
 from yaml12 import Tagged
-import base64
 
 
 def test_format_yaml_round_trip_nested_structures():
@@ -239,7 +237,7 @@ def test_parse_yaml_ignores_later_document_errors_when_not_multi():
 
 def test_parse_yaml_errors_on_none_inputs():
     with pytest.raises(
-        TypeError, match="`text` must be a string, a sequence of strings, or an object with .read"
+        TypeError, match="`text` must be a string or a sequence of strings"
     ):
         yaml12.parse_yaml(None)
 
@@ -255,78 +253,13 @@ def test_parse_yaml_errors_on_none_inputs():
     assert yaml12.parse_yaml([]) is None
 
 
-def test_parse_yaml_accepts_text_connection():
-    path = Path(tempfile.mkstemp(prefix="yaml12-text-")[1])
-    path.write_text("foo: 1\nbar: true\n", encoding="utf-8")
-    with path.open("r", encoding="utf-8") as fh:
-        assert yaml12.parse_yaml(fh) == {"foo": 1, "bar": True}
-    path.unlink()
-
-
-def test_parse_yaml_accepts_bytes_connection_and_validates_utf8():
-    path = Path(tempfile.mkstemp(prefix="yaml12-bytes-")[1])
-    path.write_bytes(b"foo: 1\n")
-    with path.open("rb") as fh:
-        assert yaml12.parse_yaml(fh) == {"foo": 1}
-
-    bad_path = Path(tempfile.mkstemp(prefix="yaml12-badbytes-")[1])
-    bad_path.write_bytes(b"a\xff")
-    with bad_path.open("rb") as fh_bad, pytest.raises(ValueError, match="UTF-8"):
-        yaml12.parse_yaml(fh_bad)
-    path.unlink()
-    bad_path.unlink()
-
-
-def test_parse_yaml_connection_empty_respects_multi_flag():
-    path = Path(tempfile.mkstemp(prefix="yaml12-empty-")[1])
-    path.write_text("", encoding="utf-8")
-    with path.open("r", encoding="utf-8") as fh:
-        assert yaml12.parse_yaml(fh) is None
-    with path.open("r", encoding="utf-8") as fh_multi:
-        assert yaml12.parse_yaml(fh_multi, multi=True) == []
-    path.unlink()
-
-
-def test_parse_yaml_streaming_large_chunk_size_one():
-    items = list(range(5000))
-    yaml_text = "".join(f"- {i}\n" for i in items)
-    path = Path(tempfile.mkstemp(prefix="yaml12-chunk1-")[1])
-    path.write_text(yaml_text, encoding="utf-8")
-    reader = _ChunkReader(path, chunk_size=1)
-    try:
-        parsed = yaml12.parse_yaml(reader)
-        assert parsed == items
-    finally:
-        reader.close()
-        path.unlink()
-
-
-def test_parse_yaml_streaming_multi_documents():
-    yaml_text = "---\nfoo: 1\n---\nbar: [1, 2, 3]\n"
-    path = Path(tempfile.mkstemp(prefix="yaml12-chunk-multi-")[1])
-    path.write_text(yaml_text, encoding="utf-8")
-    reader = _ChunkReader(path, chunk_size=2)
-    try:
-        parsed = yaml12.parse_yaml(reader, multi=True)
-        assert parsed == [{"foo": 1}, {"bar": [1, 2, 3]}]
-    finally:
-        reader.close()
-        path.unlink()
-
-
-def test_parse_yaml_streaming_read_error_propagates():
-    with pytest.raises(RuntimeError, match="boom stream"):
-        yaml12.parse_yaml(_ErroringReader())
-
-
-def test_parse_yaml_streaming_bad_type_error():
-    with pytest.raises(TypeError, match="str or bytes"):
-        yaml12.parse_yaml(_BadTypeReader())
-
-
-def test_parse_yaml_streaming_midway_error():
-    with pytest.raises(RuntimeError, match="boom later"):
-        yaml12.parse_yaml(_ErroringReaderAfterFirst(), multi=True)
+def test_parse_yaml_rejects_file_like_objects(tmp_path: Path):
+    path = tmp_path / "parse-no-conn.yaml"
+    path.write_text("foo: 1\n", encoding="utf-8")
+    with path.open("r", encoding="utf-8") as fh, pytest.raises(
+        TypeError, match="`text` must be a string or a sequence of strings"
+    ):
+        yaml12.parse_yaml(fh)
 
 
 class _ChunkReader:

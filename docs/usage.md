@@ -18,7 +18,7 @@ assert config["items"] == ["rust", "python"]
 
 ## Read from files
 
-`read_yaml(path, multi=False, handlers=None)` reads YAML from disk and parses it with the same semantics as `parse_yaml`.
+`read_yaml(path, multi=False, handlers=None)` reads YAML from disk and parses it with the same semantics as `parse_yaml`. `path` may be a string, a `pathlib.Path`/`os.PathLike`, or a file-like object with `.read()` that yields text or bytes.
 
 ```python
 from yaml12 import read_yaml
@@ -46,7 +46,7 @@ When `multi=True`, the returned string ends with `...\n` to close the stream.
 
 ## Write YAML to disk or stdout
 
-`write_yaml(value, path=None, multi=False)` writes YAML straight to a file when `path` is provided or to stdout otherwise.
+`write_yaml(value, path=None, multi=False)` writes YAML straight to a file when `path` is provided or to stdout otherwise. `path` may be a string, a `pathlib.Path`/`os.PathLike`, or a writable object with `.write()`.
 
 ```python
 from yaml12 import write_yaml

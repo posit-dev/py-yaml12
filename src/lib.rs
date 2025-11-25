@@ -16,12 +16,26 @@ use std::ffi::CString;
 use std::fs;
 use std::io::{self, Write};
 use std::mem;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 type Result<T> = PyResult<T>;
 
 static TAGGED_CLASS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
 const READ_CHUNK_SIZE: usize = 8192;
+
+fn pathlike_to_pathbuf(obj: &Bound<'_, PyAny>) -> Result<Option<PathBuf>> {
+    match obj.extract::<PathBuf>() {
+        Ok(path) => Ok(Some(path)),
+        Err(err) => {
+            if err.is_instance_of::<PyTypeError>(obj.py()) {
+                Ok(None)
+            } else {
+                Err(err)
+            }
+        }
+    }
+}
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 struct HandlerKeyOwned {
@@ -294,19 +308,8 @@ fn parse_yaml(
         return docs_to_python(py, docs, multi, handlers);
     }
 
-    if let Ok(read) = bound.getattr("read") {
-        let reader = read.unbind();
-        let error_flag = Rc::new(RefCell::new(None));
-        let iter = PyReadIter::new(py, reader, error_flag.clone());
-        let docs = load_yaml_documents_iter(iter, multi)?;
-        if let Some(err) = error_flag.borrow_mut().take() {
-            return Err(err);
-        }
-        return docs_to_python(py, docs, multi, handlers);
-    }
-
     Err(PyTypeError::new_err(
-        "`text` must be a string, a sequence of strings, or an object with .read()",
+        "`text` must be a string or a sequence of strings",
     ))
 }
 
@@ -314,7 +317,7 @@ fn parse_yaml(
 /// Read a YAML file from `path` and parse it.
 ///
 /// Args:
-///     path (str | object with .read): Filesystem path or readable object yielding str/bytes.
+///     path (str | os.PathLike | object with .read): Filesystem path or readable object yielding str/bytes.
 ///     multi (bool): Return a list of documents when true; otherwise a single document or None for empty input.
 ///     handlers (dict[str, Callable] | None): Optional tag handlers for values and keys; matching handlers receive the parsed value.
 ///
@@ -348,6 +351,14 @@ fn read_yaml(
         return docs_to_python(py, docs, multi, handlers);
     }
 
+    if let Some(path_buf) = pathlike_to_pathbuf(bound)? {
+        let contents = fs::read_to_string(&path_buf).map_err(|err| {
+            PyIOError::new_err(format!("failed to read `{}`: {err}", path_buf.display()))
+        })?;
+        let docs = load_yaml_documents(&contents, multi)?;
+        return docs_to_python(py, docs, multi, handlers);
+    }
+
     if let Ok(read) = bound.getattr("read") {
         let reader = read.unbind();
         let error_flag = Rc::new(RefCell::new(None));
@@ -360,7 +371,7 @@ fn read_yaml(
     }
 
     Err(PyTypeError::new_err(
-        "`path` must be a string or an object with .read()",
+        "`path` must be a string, a path-like object, or an object with .read()",
     ))
 }
 
@@ -397,7 +408,7 @@ fn format_yaml(py: Python<'_>, value: PyObject, multi: bool) -> Result<String> {
 ///
 /// Args:
 ///     value (object): Python value or Tagged to serialize; for `multi` the value must be a sequence of documents.
-///     path (str | file-like | None): Destination path or object with `.write()`; when None the YAML is written to stdout.
+///     path (str | os.PathLike | file-like | None): Destination path or object with `.write()`; when None the YAML is written to stdout.
 ///     multi (bool): Emit a multi-document stream when true; otherwise a single document.
 ///
 /// Returns:
@@ -439,6 +450,13 @@ fn write_yaml(py: Python<'_>, value: PyObject, path: Option<PyObject>, multi: bo
         return Ok(());
     }
 
+    if let Some(path_buf) = pathlike_to_pathbuf(bound_path)? {
+        fs::write(&path_buf, &output).map_err(|err| {
+            PyIOError::new_err(format!("failed to write `{}`: {err}", path_buf.display()))
+        })?;
+        return Ok(());
+    }
+
     if let Ok(write) = bound_path.getattr("write") {
         let writer = write.unbind();
         let try_str = writer.bind(py).call1((output.as_str(),));
@@ -454,7 +472,7 @@ fn write_yaml(py: Python<'_>, value: PyObject, path: Option<PyObject>, multi: bo
     }
 
     Err(PyTypeError::new_err(
-        "`path` must be None, a string path, or an object with .write()",
+        "`path` must be None, a string or path-like path, or an object with .write()",
     ))
 }
 

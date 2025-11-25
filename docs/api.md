@@ -11,7 +11,7 @@ All functions live in the top-level `yaml12` module. Arguments mirror the Rust b
 
 ## read_yaml(path, multi=False, handlers=None)
 
-- Reads and parses the YAML file at `path` with the same semantics as `parse_yaml`.
+- Reads and parses the YAML file at `path` (string, `os.PathLike`, or readable object yielding str/bytes) with the same semantics as `parse_yaml`.
 - Raises `IOError` if the file cannot be read; otherwise identical error behaviour to `parse_yaml`.
 
 ## format_yaml(value, multi=False)
@@ -22,7 +22,7 @@ All functions live in the top-level `yaml12` module. Arguments mirror the Rust b
 
 ## write_yaml(value, path=None, multi=False)
 
-- Serializes `value` like `format_yaml` and writes to `path` if provided, or stdout when `path` is `None`.
+- Serializes `value` like `format_yaml` and writes to `path` (string, `os.PathLike`, or object with `.write()`) if provided, or stdout when `path` is `None`.
 - Always terminates single-document output with `...\n` and multi-document output with `...\n` after the final document.
 - Raises `IOError` on write failures or `TypeError` when inputs are invalid.
 
