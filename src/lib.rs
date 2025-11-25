@@ -17,7 +17,6 @@ use std::fs;
 use std::io::{self, Write};
 use std::mem;
 use std::path::PathBuf;
-use std::rc::Rc;
 
 type Result<T> = PyResult<T>;
 
@@ -362,13 +361,15 @@ fn read_yaml(
 
     if let Ok(read) = bound.getattr("read") {
         let reader = read.unbind();
-        let error_flag = Rc::new(RefCell::new(None));
-        let iter = PyReadIter::new(py, reader, error_flag.clone());
-        let docs = load_yaml_documents_iter(iter, multi)?;
-        if let Some(err) = error_flag.borrow_mut().take() {
+        let mut iter = PyReadIter::new(py, reader);
+        let result = {
+            let docs = load_yaml_documents_iter(&mut iter, multi)?;
+            docs_to_python(py, docs, multi, handlers)?
+        };
+        if let Some(err) = iter.take_error() {
             return Err(err);
         }
-        return docs_to_python(py, docs, multi, handlers);
+        return Ok(result);
     }
 
     Err(PyTypeError::new_err(
@@ -514,13 +515,14 @@ fn _dbg_yaml(py: Python<'_>, text: PyObject) -> Result<()> {
 
     if let Ok(read) = bound.getattr("read") {
         let reader = read.unbind();
-        let error_flag = Rc::new(RefCell::new(None));
-        let iter = PyReadIter::new(py, reader, error_flag.clone());
-        let docs = load_yaml_documents_iter(iter, true)?;
-        if let Some(err) = error_flag.borrow_mut().take() {
+        let mut iter = PyReadIter::new(py, reader);
+        {
+            let docs = load_yaml_documents_iter(&mut iter, true)?;
+            println!("{docs:#?}");
+        }
+        if let Some(err) = iter.take_error() {
             return Err(err);
         }
-        println!("{docs:#?}");
         return Ok(());
     }
 
@@ -854,18 +856,18 @@ struct PyReadIter<'py> {
     reader: Py<PyAny>,
     chars: std::str::Chars<'static>,
     done: bool,
-    error: Rc<RefCell<Option<PyErr>>>,
+    error: RefCell<Option<PyErr>>,
     buffer: String,
 }
 
 impl<'py> PyReadIter<'py> {
-    fn new(py: Python<'py>, reader: Py<PyAny>, error: Rc<RefCell<Option<PyErr>>>) -> Self {
+    fn new(py: Python<'py>, reader: Py<PyAny>) -> Self {
         Self {
             py,
             reader,
             chars: "".chars(),
             done: false,
-            error,
+            error: RefCell::new(None),
             buffer: String::new(),
         }
     }
@@ -962,6 +964,12 @@ impl<'py> Iterator for PyReadIter<'py> {
                 return None;
             }
         }
+    }
+}
+
+impl<'py> PyReadIter<'py> {
+    fn take_error(&self) -> Option<PyErr> {
+        self.error.borrow_mut().take()
     }
 }
 
