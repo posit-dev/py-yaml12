@@ -6,8 +6,9 @@ theme:
   name: mkdocs
 nav:
   - Overview: index.md
-  - Usage: usage.md
-  - Custom Tags: tags.md
+  - Guides:
+      - YAML in 2 Minutes: usage.md
+      - Tags, Anchors, and Advanced YAML: tags.md
   - API Reference: api.md
   - Contributing: contributing.md
 markdown_extensions:

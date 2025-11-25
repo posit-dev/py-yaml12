@@ -46,19 +46,18 @@ from yaml12 import Yaml, format_yaml, parse_yaml
 
 # Tagged scalar
 text = format_yaml({"env": Yaml("prod", "!env")})
-assert "!env" in text
-assert isinstance(parse_yaml(text)["env"], Yaml)
+env = parse_yaml(text)["env"]
+assert isinstance(env, Yaml) and env.tag == "!env" and env.value == "prod"
 
 # Collection key
 data = {Yaml(["a", "b"]): "val"}
 out = format_yaml(data)
-assert parse_yaml(out)[Yaml(["a", "b"])] == "val"
+assert parse_yaml(out) == data
 
 # Tagged collection key
 data = {Yaml(["a", "b"], "!pair"): "val"}
 out = format_yaml(data)
-key = next(iter(parse_yaml(out)))
-assert isinstance(key, Yaml) and key.tag == "!pair" and key.value == ["a", "b"]
+assert parse_yaml(out) == data
 ```
 
 ## _dbg_yaml(text)
