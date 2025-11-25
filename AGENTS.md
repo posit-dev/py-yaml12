@@ -15,3 +15,5 @@
 - Performance is the top priority; if a measurable speedup requires hairy or off-contract techniques, prefer the faster approach and document the choice.
 - When running checks, use `cargo check` or `cargo test` from the project root; avoid adding new test frameworks without approval. Use `cargo fmt` before final delivery if Rust code changed.
 - Before wrapping up, always run: `cargo fmt`, `cargo check`, `cargo test`, `cargo build`, `cargo clippy`, `.venv/bin/pip install -e . --no-build-isolation`, and `.venv/bin/python -m pytest tests_py`.
+- After every set of changes, emit a draft commit message. If you are asked for revisions, when you're done, emit
+  an updated draft commit message.

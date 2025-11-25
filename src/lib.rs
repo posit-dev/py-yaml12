@@ -2,8 +2,8 @@ use pyo3::exceptions::{PyIOError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::{
-    PyAnyMethods, PyBytes, PyDict, PyDictMethods, PyList, PyModule, PySequence, PySequenceMethods,
-    PyString, PyTuple,
+    PyAnyMethods, PyByteArray, PyBytes, PyDict, PyDictMethods, PyList, PyModule, PySequence,
+    PySequenceMethods, PyString,
 };
 use pyo3::Bound;
 use pyo3::IntoPyObjectExt;
@@ -22,6 +22,7 @@ use std::rc::Rc;
 type Result<T> = PyResult<T>;
 
 static TAGGED_CLASS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
+static MAPPING_KEY_CLASS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
 const READ_CHUNK_SIZE: usize = 8192;
 
 fn pathlike_to_pathbuf(obj: &Bound<'_, PyAny>) -> Result<Option<PathBuf>> {
@@ -667,47 +668,28 @@ fn scalar_to_py(py: Python<'_>, scalar: &Scalar) -> PyObject {
 fn sequence_to_py(
     py: Python<'_>,
     seq: &mut [Yaml],
-    is_key: bool,
+    _is_key: bool,
     handlers: Option<&HandlerRegistry>,
 ) -> Result<PyObject> {
     let mut values = Vec::with_capacity(seq.len());
     for node in seq {
         resolve_representation(node, true);
-        values.push(yaml_to_py(py, node, is_key, handlers)?);
+        values.push(yaml_to_py(py, node, false, handlers)?);
     }
-    if is_key {
-        Ok(PyTuple::new(py, values)?.unbind().into())
-    } else {
-        Ok(PyList::new(py, values)?.unbind().into())
-    }
+    Ok(PyList::new(py, values)?.unbind().into())
 }
 
 fn mapping_to_py(
     py: Python<'_>,
     map: &mut Mapping,
-    is_key: bool,
+    _is_key: bool,
     handlers: Option<&HandlerRegistry>,
 ) -> Result<PyObject> {
-    let len = map.len();
-
-    if is_key {
-        let mut pairs: Vec<(PyObject, PyObject)> = Vec::with_capacity(len);
-        for (mut key, mut value) in mem::take(map) {
-            resolve_representation(&mut key, true);
-            resolve_representation(&mut value, true);
-            let k_obj = yaml_to_py(py, &mut key, true, handlers)?;
-            let v_obj = yaml_to_py(py, &mut value, true, handlers)?;
-            pairs.push((k_obj, v_obj));
-        }
-        return Ok(PyTuple::new(py, pairs)?.unbind().into());
-    }
-
     let dict = PyDict::new(py);
     for (mut key, mut value) in mem::take(map) {
         resolve_representation(&mut key, true);
         let key_obj = yaml_to_py(py, &mut key, true, handlers)?;
-        // Ensure the key is hashable; propagate Python's TypeError for clarity.
-        key_obj.bind(py).hash()?;
+        let key_obj = ensure_hashable_mapping_key(py, key_obj)?;
         let value_obj = yaml_to_py(py, &mut value, false, handlers)?;
         dict.set_item(key_obj, value_obj)?;
     }
@@ -756,6 +738,73 @@ fn make_tagged(py: Python<'_>, value: PyObject, tag: &str) -> Result<PyObject> {
         .get(py)
         .ok_or_else(|| PyValueError::new_err("Tagged class is not initialized"))?;
     cls.bind(py).call1((value, tag)).map(|obj| obj.into())
+}
+
+fn make_mapping_key(py: Python<'_>, value: PyObject) -> Result<PyObject> {
+    let cls = MAPPING_KEY_CLASS
+        .get(py)
+        .ok_or_else(|| PyValueError::new_err("MappingKey class is not initialized"))?;
+    cls.bind(py).call1((value,)).map(|obj| obj.into())
+}
+
+fn is_mapping_key(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
+    if let Some(cls) = MAPPING_KEY_CLASS.get(py) {
+        obj.is_instance(cls.bind(py))
+    } else {
+        Ok(false)
+    }
+}
+
+fn should_wrap_in_mapping_key(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
+    if obj.is_instance_of::<PyDict>() || obj.is_instance_of::<PyList>() {
+        return Ok(true);
+    }
+
+    if let Some(tagged_cls) = TAGGED_CLASS.get(py) {
+        if obj.is_instance(tagged_cls.bind(py))? {
+            let value = obj.getattr("value")?;
+            return should_wrap_in_mapping_key(py, &value);
+        }
+    }
+
+    if obj.is_instance_of::<PyString>()
+        || obj.is_instance_of::<PyBytes>()
+        || obj.is_instance_of::<PyByteArray>()
+    {
+        return Ok(false);
+    }
+
+    let abc = PyModule::import(py, "collections.abc")?;
+    let mapping_cls = abc.getattr("Mapping")?;
+    if obj.is_instance(&mapping_cls)? {
+        return Ok(true);
+    }
+
+    let sequence_cls = abc.getattr("Sequence")?;
+    if obj.is_instance(&sequence_cls)? {
+        if obj.is_instance_of::<PyString>()
+            || obj.is_instance_of::<PyBytes>()
+            || obj.is_instance_of::<PyByteArray>()
+        {
+            return Ok(false);
+        }
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+fn ensure_hashable_mapping_key(py: Python<'_>, key_obj: PyObject) -> Result<PyObject> {
+    let bound = key_obj.bind(py);
+    if let Err(err) = bound.hash() {
+        if err.is_instance_of::<PyTypeError>(py) && should_wrap_in_mapping_key(py, bound)? {
+            let wrapped = make_mapping_key(py, key_obj)?;
+            wrapped.bind(py).hash()?;
+            return Ok(wrapped);
+        }
+        return Err(err);
+    }
+    Ok(key_obj)
 }
 
 #[cfg(test)]
@@ -1031,6 +1080,11 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
         return Ok(Yaml::Value(Scalar::Null));
     }
 
+    if is_mapping_key(py, obj)? {
+        let value = obj.getattr("value")?;
+        return py_to_yaml(py, &value, is_key);
+    }
+
     if let Ok(b) = obj.extract::<bool>() {
         return Ok(Yaml::Value(Scalar::Boolean(b)));
     }
@@ -1167,36 +1221,103 @@ fn is_tagged(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
     }
 }
 
-fn init_tagged_class(py: Python<'_>, module: &Bound<'_, PyModule>) -> Result<()> {
-    let cls = TAGGED_CLASS.get_or_try_init(py, || -> Result<Py<PyAny>> {
+fn init_python_helpers(py: Python<'_>, module: &Bound<'_, PyModule>) -> Result<()> {
+    let tagged_cls = TAGGED_CLASS.get_or_try_init(py, || -> Result<Py<PyAny>> {
         let code = r#"
 from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+
+def _freeze(obj):
+    if isinstance(obj, MappingKey):
+        return obj._frozen
+    if isinstance(obj, Tagged):
+        return ("tagged", obj.tag, _freeze(obj.value))
+    if isinstance(obj, Mapping):
+        return ("map", tuple(sorted((_freeze(k), _freeze(v)) for k, v in obj.items())))
+    if isinstance(obj, Sequence) and not isinstance(obj, (str, bytes, bytearray)):
+        return ("seq", tuple(_freeze(x) for x in obj))
+    return obj
 
 @dataclass(frozen=True)
 class Tagged:
     value: object
     tag: str
+
+@dataclass(frozen=True)
+class MappingKey:
+    value: object
+
+    def __post_init__(self):
+        frozen = _freeze(self.value)
+        object.__setattr__(self, "_frozen", frozen)
+        object.__setattr__(self, "_hash", hash(frozen))
+
+    def __hash__(self):
+        return self._hash
+
+    def __eq__(self, other):
+        if not isinstance(other, MappingKey):
+            return NotImplemented
+        return self._frozen == other._frozen
+
+    def _proxy_target(self):
+        target = self.value.value if isinstance(self.value, Tagged) else self.value
+        if isinstance(target, (Mapping, Sequence)) and not isinstance(
+            target, (str, bytes, bytearray)
+        ):
+            return target
+        return None
+
+    def __getitem__(self, key):
+        target = self._proxy_target()
+        if target is not None:
+            return target[key]
+        raise TypeError("MappingKey.value does not support indexing")
+
+    def __iter__(self):
+        target = self._proxy_target()
+        if target is not None:
+            return iter(target)
+        raise TypeError("MappingKey.value is not iterable")
+
+    def __len__(self):
+        target = self._proxy_target()
+        if target is not None:
+            return len(target)
+        raise TypeError("MappingKey.value has no len()")
+
+    def __repr__(self):
+        return f"MappingKey({self.value!r})"
 "#;
-        let filename = CString::new("tagged.py").unwrap();
-        let modname = CString::new("tagged").unwrap();
+        let filename = CString::new("py_helpers.py").unwrap();
+        let modname = CString::new("py_helpers").unwrap();
         let code_cstr = CString::new(code).unwrap();
-        let tagged_mod = PyModule::from_code(
+        let helpers_mod = PyModule::from_code(
             py,
             code_cstr.as_c_str(),
             filename.as_c_str(),
             modname.as_c_str(),
         )?;
-        let cls = tagged_mod.getattr("Tagged")?;
-        Ok(cls.unbind())
+        let tagged_cls = helpers_mod.getattr("Tagged")?;
+        let mapping_key_cls = helpers_mod.getattr("MappingKey")?;
+
+        MAPPING_KEY_CLASS
+            .get_or_try_init(py, || -> Result<Py<PyAny>> { Ok(mapping_key_cls.unbind()) })?;
+
+        Ok(tagged_cls.unbind())
     })?;
 
-    module.add("Tagged", cls.clone_ref(py))?;
+    let mapping_key_cls = MAPPING_KEY_CLASS
+        .get(py)
+        .ok_or_else(|| PyValueError::new_err("MappingKey class is not initialized"))?;
+    module.add("Tagged", tagged_cls.clone_ref(py))?;
+    module.add("MappingKey", mapping_key_cls.clone_ref(py))?;
     Ok(())
 }
 
 #[pymodule]
 pub fn yaml12(py: Python<'_>, m: &Bound<'_, PyModule>) -> Result<()> {
-    init_tagged_class(py, m)?;
+    init_python_helpers(py, m)?;
     m.add_function(wrap_pyfunction!(parse_yaml, m)?)?;
     m.add_function(wrap_pyfunction!(read_yaml, m)?)?;
     m.add_function(wrap_pyfunction!(format_yaml, m)?)?;
