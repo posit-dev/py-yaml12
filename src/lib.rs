@@ -190,20 +190,18 @@ impl HandlerRegistry {
     }
 
     fn get_for_tag(&self, tag: &Tag) -> Option<&Py<PyAny>> {
-        match &self.store {
-            HandlerStore::Small(entries) => {
-                let key_ref = HandlerKeyRef::from(tag);
-                entries
-                    .iter()
-                    .find(|entry| entry.key == key_ref)
-                    .map(|entry| &entry.handler)
-            }
+        let key_ref = HandlerKeyRef::from(tag);
+        let handler = match &self.store {
+            HandlerStore::Small(entries) => entries
+                .iter()
+                .find(|entry| entry.key == key_ref)
+                .map(|entry| &entry.handler),
             HandlerStore::Large(map) => map
                 .get(tag.handle.as_str())
                 .and_then(|suffixes| suffixes.get(tag.suffix.as_str())),
-        }
-        .or_else(|| {
-            if HandlerKeyRef::from(tag).is_non_specific() {
+        };
+        handler.or_else(|| {
+            if key_ref.is_non_specific() {
                 self.non_specific.as_ref()
             } else {
                 None
@@ -212,7 +210,7 @@ impl HandlerRegistry {
     }
 
     fn apply(&self, py: Python<'_>, handler: &Py<PyAny>, arg: PyObject) -> Result<PyObject> {
-        handler.bind(py).call1((arg,)).map(|obj| obj.unbind())
+        handler.call1(py, (arg,))
     }
 }
 
@@ -690,7 +688,7 @@ fn mapping_to_py(
     handlers: Option<&HandlerRegistry>,
 ) -> Result<PyObject> {
     let dict = PyDict::new(py);
-    for (mut key, mut value) in mem::take(map) {
+    for (mut key, mut value) in map.drain() {
         resolve_representation(&mut key, true);
         let key_obj = yaml_to_py(py, &mut key, true, handlers)?;
         let key_obj = ensure_hashable_mapping_key(py, key_obj)?;
