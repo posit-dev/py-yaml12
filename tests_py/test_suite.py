@@ -54,7 +54,7 @@ def _strip_tags(obj):
     if isinstance(obj, list):
         return [_strip_tags(item) for item in obj]
     if isinstance(obj, dict):
-        return { _strip_tags(k): _strip_tags(v) for k, v in obj.items() }
+        return {_strip_tags(k): _strip_tags(v) for k, v in obj.items()}
     return obj
 
 
@@ -63,9 +63,7 @@ def _strip_tags(obj):
     _iter_cases(),
     ids=lambda kc: f"{kc[0]}:{kc[1].name}" if isinstance(kc, tuple) else str(kc),
 )
-def test_yaml_suite_cases(
-    kind: Literal["json", "error", "parse_only"], case_dir: Path
-):
+def test_yaml_suite_cases(kind: Literal["json", "error", "parse_only"], case_dir: Path):
     in_yaml = (case_dir / "in.yaml").read_text(encoding="utf-8")
 
     if kind == "error":
@@ -77,7 +75,9 @@ def test_yaml_suite_cases(
         return
 
     if kind == "json":
-        expected_stream = _parse_json_stream((case_dir / "in.json").read_text(encoding="utf-8"))
+        expected_stream = _parse_json_stream(
+            (case_dir / "in.json").read_text(encoding="utf-8")
+        )
         actual_stream = _load_yaml_multi(in_yaml)
         assert _strip_tags(actual_stream) == expected_stream
         return

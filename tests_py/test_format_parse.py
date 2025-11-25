@@ -263,8 +263,11 @@ def test_parse_yaml_errors_on_none_inputs():
 def test_parse_yaml_rejects_file_like_objects(tmp_path: Path):
     path = tmp_path / "parse-no-conn.yaml"
     path.write_text("foo: 1\n", encoding="utf-8")
-    with path.open("r", encoding="utf-8") as fh, pytest.raises(
-        TypeError, match="`text` must be a string or a sequence of strings"
+    with (
+        path.open("r", encoding="utf-8") as fh,
+        pytest.raises(
+            TypeError, match="`text` must be a string or a sequence of strings"
+        ),
     ):
         yaml12.parse_yaml(fh)
 
@@ -410,7 +413,9 @@ def test_parse_yaml_applies_handlers_to_mapping_keys():
         : value
         """
     )
-    handlers: dict[str, Callable[[object], object]] = {"!upper": lambda value: str(value).upper()}
+    handlers: dict[str, Callable[[object], object]] = {
+        "!upper": lambda value: str(value).upper()
+    }
 
     result = yaml12.parse_yaml(text, handlers=handlers)
     assert result == {"KEY": "value"}

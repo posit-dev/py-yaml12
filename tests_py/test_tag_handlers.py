@@ -53,7 +53,9 @@ started_at: !ts 2024-11-22T18:30:00Z
     handlers = {
         "!path": Path,
         "!seconds": lambda value: dt.timedelta(seconds=float(value)),
-        "!ts": lambda value: dt.datetime.fromisoformat(str(value).replace("Z", "+00:00")),
+        "!ts": lambda value: dt.datetime.fromisoformat(
+            str(value).replace("Z", "+00:00")
+        ),
     }
 
     converted = yaml12.parse_yaml(text, handlers=handlers)
@@ -121,7 +123,9 @@ start_at: !ts 2024-11-22T18:30:00Z
     handlers = {
         "!path": lambda tagged: Path(tagged.value),
         "!seconds": lambda tagged: dt.timedelta(seconds=float(tagged.value)),
-        "!ts": lambda tagged: dt.datetime.fromisoformat(str(tagged.value).replace("Z", "+00:00")),
+        "!ts": lambda tagged: dt.datetime.fromisoformat(
+            str(tagged.value).replace("Z", "+00:00")
+        ),
         "!env": lambda tagged: env[tagged.value],
     }
 
@@ -133,7 +137,9 @@ start_at: !ts 2024-11-22T18:30:00Z
     assert converted["config"][0] == dt.timedelta(seconds=1.5)
     assert converted["config"][1] == "wait"
     assert converted["config"][2] == dt.timedelta(seconds=0.25)
-    assert converted["start_at"] == dt.datetime(2024, 11, 22, 18, 30, tzinfo=dt.timezone.utc)
+    assert converted["start_at"] == dt.datetime(
+        2024, 11, 22, 18, 30, tzinfo=dt.timezone.utc
+    )
     assert converted[env["HOME"]] == env["CONF"]
 
 

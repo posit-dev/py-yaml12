@@ -110,11 +110,7 @@ def test_mapping_key_tagged_round_trip_format_and_parse():
 
 
 def test_collection_values_stay_plain():
-    parsed = yaml12.parse_yaml(
-        "top:\n"
-        "  - [1, 2]\n"
-        "  - {foo: bar}\n"
-    )
+    parsed = yaml12.parse_yaml("top:\n  - [1, 2]\n  - {foo: bar}\n")
 
     items = parsed["top"]
     assert items[0] == [1, 2]

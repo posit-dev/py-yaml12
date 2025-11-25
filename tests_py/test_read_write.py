@@ -29,7 +29,9 @@ def test_write_and_read_single_document(tmp_path: Path):
     assert yaml12.read_yaml(str(path)) == value
 
 
-def test_write_yaml_defaults_to_stdout_when_path_is_none(capfd: pytest.CaptureFixture[str]):
+def test_write_yaml_defaults_to_stdout_when_path_is_none(
+    capfd: pytest.CaptureFixture[str],
+):
     value = {"alpha": 1, "nested": [True, None]}
     encoded = yaml12.format_yaml(value)
 
@@ -248,7 +250,10 @@ def test_read_yaml_handler_errors_propagate(tmp_path: Path):
 
     with pytest.raises(RuntimeError, match="handler oops"):
         yaml12.read_yaml(
-            str(path), handlers={"!err": lambda _: (_ for _ in ()).throw(RuntimeError("handler oops"))}
+            str(path),
+            handlers={
+                "!err": lambda _: (_ for _ in ()).throw(RuntimeError("handler oops"))
+            },
         )
 
 
@@ -258,7 +263,9 @@ def test_write_yaml_accepts_text_writer(tmp_path: Path):
     value = {"foo": 1}
     yaml12.write_yaml(value, handle)
     handle.close()
-    assert path.read_text(encoding="utf-8") == f"---\n{yaml12.format_yaml(value)}\n...\n"
+    assert (
+        path.read_text(encoding="utf-8") == f"---\n{yaml12.format_yaml(value)}\n...\n"
+    )
 
 
 def test_write_yaml_accepts_bytes_writer(tmp_path: Path):
@@ -267,7 +274,9 @@ def test_write_yaml_accepts_bytes_writer(tmp_path: Path):
     value = {"foo": 1}
     yaml12.write_yaml(value, handle)
     handle.close()
-    assert path.read_text(encoding="utf-8") == f"---\n{yaml12.format_yaml(value)}\n...\n"
+    assert (
+        path.read_text(encoding="utf-8") == f"---\n{yaml12.format_yaml(value)}\n...\n"
+    )
 
 
 def test_write_yaml_bytes_writer_after_str_failure():

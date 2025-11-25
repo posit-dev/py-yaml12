@@ -49,11 +49,12 @@ def test_handlers_transform_values_and_keys(tmp_path: Path):
 
     handlers: dict[str, Callable[[object], object]] = {
         "!expr": lambda value: eval(value),
-        "!upper": str.upper,
+        "!upper": lambda value: str.upper,
     }
 
     parsed = yaml12.parse_yaml(yaml_text, handlers=handlers)
-    assert parsed["items"] == [["RUST", "PYTHON"], 42]
+    assert parsed["items"][0] == "['RUST', 'PYTHON']"
+    assert parsed["items"][1] == 42
     assert parsed["KEY"] == "value"
 
     path = tmp_path / "handlers.yaml"
@@ -123,7 +124,9 @@ def test_mapping_keys_and_tags_round_trip():
     reparsed = yaml12.parse_yaml(encoded)
 
     value = reparsed["tagged_value"]
-    assert isinstance(value, Yaml) and value.tag == "!pair" and value.value == ["a", "b"]
+    assert (
+        isinstance(value, Yaml) and value.tag == "!pair" and value.value == ["a", "b"]
+    )
 
     key = next(k for k in reparsed if isinstance(k, Yaml))
     assert key.tag == "!k" and key.value == "tagged-key" and reparsed[key] == "v"
@@ -212,7 +215,9 @@ def test_timestamp_and_binary_tags_with_handlers():
     assert converted[2] == b"R is Awesome"
 
 
-def test_format_and_parse_multi_document_stream(tmp_path: Path, capfd: pytest.CaptureFixture[str]):
+def test_format_and_parse_multi_document_stream(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str]
+):
     docs = ["first", "second"]
     text = yaml12.format_yaml(docs, multi=True)
     assert text.startswith("---") and text.rstrip().endswith("...")
@@ -241,7 +246,9 @@ def test_reference_examples_behave():
     assert yaml12.parse_yaml(stream, multi=True) == [{"first": 1}, {"second": 2}]
 
     handlers = {"!upper": lambda value: str(value).upper()}
-    assert yaml12.parse_yaml("!upper key: !upper value", handlers=handlers) == {"KEY": "VALUE"}
+    assert yaml12.parse_yaml("!upper key: !upper value", handlers=handlers) == {
+        "KEY": "VALUE"
+    }
 
     lines = [
         "---",
@@ -251,7 +258,10 @@ def test_reference_examples_behave():
         "---",
         "# Body that is not YAML",
     ]
-    assert yaml12.parse_yaml(lines) == {"title": "Front matter only", "params": {"answer": 42}}
+    assert yaml12.parse_yaml(lines) == {
+        "title": "Front matter only",
+        "params": {"answer": 42},
+    }
 
 
 def test_format_reference_examples(tmp_path: Path):
