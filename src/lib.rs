@@ -7,7 +7,7 @@ use pyo3::types::{
 };
 use pyo3::Bound;
 use pyo3::IntoPyObjectExt;
-use saphyr::{Mapping, Scalar, Tag, Yaml, YamlEmitter};
+use saphyr::{LoadableYamlNode, Mapping, Scalar, Tag, Yaml, YamlEmitter};
 use saphyr_parser::{Parser, ScalarStyle};
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -363,6 +363,20 @@ fn write_yaml(py: Python<'_>, value: PyObject, path: Option<&str>, multi: bool) 
     } else {
         write_to_stdout(&output)?;
     }
+    Ok(())
+}
+
+#[pyfunction]
+/// Debug helper: pretty-print parsed YAML nodes without converting to Python values.
+fn _dbg_yaml(py: Python<'_>, text: PyObject) -> Result<()> {
+    let bound = text.bind(py);
+    let joined = join_text(bound)?;
+    let Some(src) = joined.as_deref() else {
+        return Ok(());
+    };
+    let docs = Yaml::load_from_str(src)
+        .map_err(|err| PyValueError::new_err(format!("YAML parse error: {err}")))?;
+    println!("{docs:#?}");
     Ok(())
 }
 
@@ -882,6 +896,7 @@ pub fn yaml12(py: Python<'_>, m: &Bound<'_, PyModule>) -> Result<()> {
     m.add_function(wrap_pyfunction!(read_yaml, m)?)?;
     m.add_function(wrap_pyfunction!(format_yaml, m)?)?;
     m.add_function(wrap_pyfunction!(write_yaml, m)?)?;
+    m.add_function(wrap_pyfunction!(_dbg_yaml, m)?)?;
     Ok(())
 }
 
