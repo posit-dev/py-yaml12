@@ -1246,7 +1246,7 @@ def _freeze(obj):
 @dataclass(frozen=True)
 class Yaml:
     """Tagged node or hashable wrapper for unhashable mapping keys."""
-    value: object
+    value: Mapping | Sequence | float | int | bool | str | None
     tag: str | None = None
 
     def __post_init__(self):
