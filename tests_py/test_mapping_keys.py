@@ -3,6 +3,7 @@ from __future__ import annotations
 import textwrap
 from collections.abc import Mapping, Sequence
 
+import pytest
 import yaml12
 
 
@@ -249,3 +250,25 @@ def test_handler_sequence_key_with_disabled_hash_is_wrapped():
     assert isinstance(key, yaml12.Yaml)
     assert isinstance(key.value, _HashlessSequence)
     assert parsed[key] == "v"
+
+
+def test_mapping_key_hash_error_propagates_once():
+    class HashError:
+        def __init__(self):
+            self.calls = 0
+
+        def __hash__(self):
+            self.calls += 1
+            raise TypeError("hash boom")
+
+    holder: dict[str, object] = {}
+
+    def handler(value: object) -> object:  # noqa: ARG001
+        obj = HashError()
+        holder["obj"] = obj
+        return obj
+
+    with pytest.raises(TypeError, match="hash boom"):
+        yaml12.parse_yaml("? !hash key\n: value\n", handlers={"!hash": handler})
+
+    assert holder["obj"].calls == 1

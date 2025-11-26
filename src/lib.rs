@@ -621,6 +621,10 @@ fn mapping_to_py(
     Ok(dict.into())
 }
 
+fn render_tag_cached<'a>(rendered: &'a mut Option<String>, tag: &Tag) -> &'a str {
+    rendered.get_or_insert_with(|| render_tag(tag)).as_str()
+}
+
 fn convert_tagged(
     py: Python<'_>,
     tag: &Tag,
@@ -628,6 +632,8 @@ fn convert_tagged(
     is_key: bool,
     handlers: Option<&HandlerRegistry>,
 ) -> Result<PyObject> {
+    let mut rendered_tag: Option<String> = None;
+
     if let Some(registry) = handlers {
         if let Some(handler) = registry.get_for_tag(tag) {
             let value = yaml_to_py(py, node, is_key, handlers)?;
@@ -642,11 +648,11 @@ fn convert_tagged(
         return match normalized_suffix {
             "str" | "null" | "bool" | "int" | "float" | "seq" | "map" => Ok(value),
             "timestamp" | "set" | "omap" | "pairs" | "binary" => {
-                let rendered = render_tag(tag);
-                make_yaml_node(py, value, Some(&rendered))
+                let rendered = render_tag_cached(&mut rendered_tag, tag);
+                make_yaml_node(py, value, Some(rendered))
             }
             _ => {
-                let rendered = render_tag(tag);
+                let rendered = render_tag_cached(&mut rendered_tag, tag);
                 Err(PyValueError::new_err(format!(
                     "unsupported core-schema tag `{rendered}`"
                 )))
@@ -654,8 +660,8 @@ fn convert_tagged(
         };
     }
 
-    let rendered = render_tag(tag);
-    make_yaml_node(py, value, Some(&rendered))
+    let rendered = render_tag_cached(&mut rendered_tag, tag);
+    make_yaml_node(py, value, Some(rendered))
 }
 
 fn make_yaml_node(py: Python<'_>, value: PyObject, tag: Option<&str>) -> Result<PyObject> {
@@ -729,15 +735,11 @@ fn should_wrap_in_mapping_key(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<
 
 fn ensure_hashable_mapping_key(py: Python<'_>, key_obj: PyObject) -> Result<PyObject> {
     let bound = key_obj.bind(py);
-    if should_wrap_in_mapping_key(py, bound)? {
+    let needs_wrap = should_wrap_in_mapping_key(py, bound)?;
+    if needs_wrap {
         return make_yaml_node(py, key_obj, None);
     }
-    if let Err(err) = bound.hash() {
-        if err.is_instance_of::<PyTypeError>(py) && should_wrap_in_mapping_key(py, bound)? {
-            return make_yaml_node(py, key_obj, None);
-        }
-        return Err(err);
-    }
+    bound.hash()?;
     Ok(key_obj)
 }
 
