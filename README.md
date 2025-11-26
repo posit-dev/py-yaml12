@@ -12,13 +12,32 @@ For almost every use case, `yaml12` lets you work with plain builtin Python type
 - Advanced YAML features (document streams, tags, complex mapping keys) are supported and
   round-trip cleanly when needed; see the advanced guide if needed.
 
-## Install (local dev)
+## Installation
+
+The package ships prebuilt wheels for Python 3.10+ on common platforms. Install from PyPI:
 
 ```bash
+pip install yaml12
+```
+
+## Development install
+
+You can install the development version of `yaml12` from github.
+Clone the repository and install in editable mode:
+
+```bash
+git clone https://github.com/t-kalinowski/py-yaml12.git
+cd py-yaml12
 python -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -e . --no-build-isolation
+```
+
+To install the latest main branch without cloning:
+
+```bash
+pip install git+https://github.com/t-kalinowski/py-yaml12.git
 ```
 
 Python 3.10+ and a Rust toolchain are required.
