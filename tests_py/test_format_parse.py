@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import math
 import textwrap
+from collections.abc import Sequence
 from typing import Callable
 from pathlib import Path
 
@@ -590,6 +591,29 @@ def test_parse_yaml_roundtrip_newline_in_short_string():
     original = {"foo": "bar!\nbar!", "baz": 42}
     round_tripped = yaml12.parse_yaml(yaml12.format_yaml(original))
     assert original == round_tripped
+
+
+def test_format_yaml_handles_custom_sequence_without_int_coercion():
+    class CustomSeq(Sequence):
+        def __init__(self):
+            self.data = [1, 2]
+
+        def __len__(self):
+            return len(self.data)
+
+        def __getitem__(self, idx):
+            return self.data[idx]
+
+        def __iter__(self):
+            return iter(self.data)
+
+        def __int__(self):
+            raise RuntimeError("should not attempt integer coercion")
+
+    obj = CustomSeq()
+    encoded = yaml12.format_yaml(obj)
+
+    assert yaml12.parse_yaml(encoded) == obj.data
 
 
 def test_parse_yaml_resolves_anchors_and_aliases():

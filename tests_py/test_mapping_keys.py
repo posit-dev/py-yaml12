@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import textwrap
+from collections.abc import Mapping
 
 import yaml12
 
@@ -194,3 +195,29 @@ def test_tagged_collection_mapping_key_wraps_with_mapping_key():
     assert key.tag == "!seq"
     assert key.value == ["a", "b"]
     assert parsed[yaml12.Yaml(["a", "b"], "!seq")] == "val"
+
+
+def test_handler_mapping_key_returns_unhashable_mapping_wrapped():
+    class UnhashableMapping(Mapping):
+        __hash__ = None
+
+        def __init__(self, value):
+            self._data = {"value": value}
+
+        def __iter__(self):
+            return iter(self._data)
+
+        def __len__(self):
+            return len(self._data)
+
+        def __getitem__(self, key):
+            return self._data[key]
+
+    handlers = {"!wrap": lambda value: UnhashableMapping(value)}
+
+    parsed = yaml12.parse_yaml("? !wrap key\n: v\n", handlers=handlers)
+    key = next(iter(parsed))
+
+    assert isinstance(key, yaml12.Yaml)
+    assert isinstance(key.value, UnhashableMapping)
+    assert parsed[yaml12.Yaml(UnhashableMapping("key"))] == "v"

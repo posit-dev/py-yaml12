@@ -2,8 +2,8 @@ use pyo3::exceptions::{PyIOError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::{
-    PyAnyMethods, PyByteArray, PyBytes, PyDict, PyDictMethods, PyIterator, PyList, PyModule,
-    PySequence, PySequenceMethods, PyString, PyTuple,
+    PyAnyMethods, PyBool, PyByteArray, PyBytes, PyDict, PyDictMethods, PyFloat, PyInt, PyIterator,
+    PyList, PyModule, PySequence, PySequenceMethods, PyString, PyTuple,
 };
 use pyo3::Bound;
 use pyo3::IntoPyObjectExt;
@@ -22,6 +22,8 @@ type Result<T> = PyResult<T>;
 
 static YAML_CLASS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
 static ABC_TYPES: GILOnceCell<(Py<PyAny>, Py<PyAny>)> = GILOnceCell::new();
+static BUILTIN_TYPES: GILOnceCell<(Py<PyAny>, Py<PyAny>, Py<PyAny>, Py<PyAny>)> =
+    GILOnceCell::new();
 const READ_CHUNK_SIZE: usize = 8192;
 
 fn pathlike_to_pathbuf(obj: &Bound<'_, PyAny>) -> Result<Option<PathBuf>> {
@@ -77,16 +79,6 @@ impl HandlerKeyOwned {
             suffix: suffix.to_string(),
         }
     }
-
-    fn is_non_specific(&self) -> bool {
-        self.handle.is_empty() && self.suffix == "!"
-    }
-}
-
-impl<'a> HandlerKeyRef<'a> {
-    fn is_non_specific(self) -> bool {
-        self.handle.is_empty() && self.suffix == "!"
-    }
 }
 
 struct HandlerEntry {
@@ -103,11 +95,10 @@ enum HandlerStore {
 
 struct HandlerRegistry {
     store: HandlerStore,
-    non_specific: Option<Py<PyAny>>,
 }
 
 impl HandlerRegistry {
-    fn from_py(py: Python<'_>, handlers: Option<&Bound<'_, PyAny>>) -> Result<Option<Self>> {
+    fn from_py(handlers: Option<&Bound<'_, PyAny>>) -> Result<Option<Self>> {
         let Some(obj) = handlers else {
             return Ok(None);
         };
@@ -126,8 +117,6 @@ impl HandlerRegistry {
         const HASHMAP_MIN_LEN: usize = 8;
         let use_hash_map = dict.len() >= HASHMAP_MIN_LEN;
 
-        let mut non_specific: Option<Py<PyAny>> = None;
-
         if use_hash_map {
             let mut handlers_map: HandlerMap = HashMap::with_capacity(dict.len());
             for (key_obj, value_obj) in dict.iter() {
@@ -142,18 +131,13 @@ impl HandlerRegistry {
                         key_text
                     )));
                 }
-                let handler = value_obj.unbind();
-                if key.is_non_specific() {
-                    non_specific = Some(handler.clone_ref(py));
-                }
                 handlers_map
                     .entry(key.handle)
                     .or_default()
-                    .insert(key.suffix, handler);
+                    .insert(key.suffix, value_obj.unbind());
             }
             return Ok(Some(Self {
                 store: HandlerStore::Large(handlers_map),
-                non_specific,
             }));
         }
 
@@ -172,9 +156,6 @@ impl HandlerRegistry {
             }
 
             let handler = value_obj.unbind();
-            if key.is_non_specific() {
-                non_specific = Some(handler.clone_ref(py));
-            }
 
             if let Some(existing) = entries.iter_mut().find(|entry| entry.key == key) {
                 existing.handler = handler;
@@ -185,7 +166,6 @@ impl HandlerRegistry {
 
         Ok(Some(Self {
             store: HandlerStore::Small(entries),
-            non_specific,
         }))
     }
 
@@ -200,18 +180,23 @@ impl HandlerRegistry {
                 .get(tag.handle.as_str())
                 .and_then(|suffixes| suffixes.get(tag.suffix.as_str())),
         };
-        handler.or_else(|| {
-            if key_ref.is_non_specific() {
-                self.non_specific.as_ref()
-            } else {
-                None
-            }
-        })
+        handler
     }
 
     fn apply(&self, py: Python<'_>, handler: &Py<PyAny>, arg: PyObject) -> Result<PyObject> {
         handler.call1(py, (arg,))
     }
+}
+
+fn builtin_types(py: Python<'_>) -> Result<&(Py<PyAny>, Py<PyAny>, Py<PyAny>, Py<PyAny>)> {
+    BUILTIN_TYPES.get_or_try_init(py, || -> Result<_> {
+        Ok((
+            py.get_type::<PyBool>().unbind().into(),
+            py.get_type::<PyInt>().unbind().into(),
+            py.get_type::<PyFloat>().unbind().into(),
+            py.get_type::<PyString>().unbind().into(),
+        ))
+    })
 }
 
 fn handler_registry_from_arg(
@@ -225,7 +210,7 @@ fn handler_registry_from_arg(
             if bound.is_none() {
                 Ok(None)
             } else {
-                HandlerRegistry::from_py(py, Some(bound))
+                HandlerRegistry::from_py(Some(bound))
             }
         }
     }
@@ -817,9 +802,7 @@ fn ensure_hashable_mapping_key(py: Python<'_>, key_obj: PyObject) -> Result<PyOb
     let bound = key_obj.bind(py);
     if let Err(err) = bound.hash() {
         if err.is_instance_of::<PyTypeError>(py) && should_wrap_in_mapping_key(py, bound)? {
-            let wrapped = make_yaml_node(py, key_obj, None)?;
-            wrapped.bind(py).hash()?;
-            return Ok(wrapped);
+            return make_yaml_node(py, key_obj, None);
         }
         return Err(err);
     }
@@ -1112,7 +1095,115 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
         };
     }
 
-    if let Ok(b) = obj.extract::<bool>() {
+    let ty = obj.get_type();
+    let (bool_type, int_type, float_type, str_type) = builtin_types(py)?;
+
+    if ty.is(bool_type.bind(py)) {
+        let b: bool = obj.extract()?;
+        return Ok(Yaml::Value(Scalar::Boolean(b)));
+    }
+
+    if ty.is(int_type.bind(py)) {
+        let i: i128 = obj.extract()?;
+        if i < i64::MIN as i128 || i > i64::MAX as i128 {
+            return Err(PyValueError::new_err("integer out of range for YAML"));
+        }
+        return Ok(Yaml::Value(Scalar::Integer(i as i64)));
+    }
+
+    if ty.is(float_type.bind(py)) {
+        let f: f64 = obj.extract()?;
+        if f.is_nan() {
+            return Ok(Yaml::Value(Scalar::Null));
+        }
+        return Ok(Yaml::Value(Scalar::FloatingPoint(f.into())));
+    }
+
+    if ty.is(str_type.bind(py)) {
+        let s: &Bound<'_, PyString> = obj.downcast()?;
+        return Ok(Yaml::Value(Scalar::String(Cow::Owned(
+            s.to_str()?.to_owned(),
+        ))));
+    }
+
+    if obj.is_instance_of::<PyDict>() {
+        let dict: &Bound<'_, PyDict> = obj.downcast()?;
+        let mut mapping = Mapping::with_capacity(dict.len());
+        for (key_obj, value_obj) in dict.iter() {
+            let key_yaml = py_to_yaml(py, &key_obj, true)?;
+            let value_yaml = py_to_yaml(py, &value_obj, false)?;
+            mapping.insert(key_yaml, value_yaml);
+        }
+        return Ok(Yaml::Mapping(mapping));
+    }
+
+    if obj.is_instance_of::<PyList>() {
+        let list: &Bound<'_, PyList> = obj.downcast()?;
+        let mut values = Vec::with_capacity(list.len());
+        for item in list.iter() {
+            values.push(py_to_yaml(py, &item, false)?);
+        }
+        return Ok(Yaml::Sequence(values));
+    }
+
+    if obj.is_instance_of::<PyTuple>() {
+        let tuple: &Bound<'_, PyTuple> = obj.downcast()?;
+        let mut values = Vec::with_capacity(tuple.len());
+        for item in tuple.iter() {
+            values.push(py_to_yaml(py, &item, false)?);
+        }
+        return Ok(Yaml::Sequence(values));
+    }
+
+    if let Ok(seq) = obj.downcast::<PySequence>() {
+        if obj.downcast::<PyString>().is_err() {
+            let len = seq.len()?;
+            let mut values = Vec::with_capacity(len);
+            let iter = PyIterator::from_object(seq.as_any())?;
+            for item in iter {
+                values.push(py_to_yaml(py, &item?, false)?);
+            }
+            return Ok(Yaml::Sequence(values));
+        }
+    }
+
+    let (mapping_cls, sequence_cls) = abc_types(py)?;
+    if obj.is_instance(mapping_cls.bind(py))? {
+        let items = obj.getattr("items")?;
+        let iter = PyIterator::from_object(items.as_any())?;
+        let mut mapping = Mapping::new();
+        for item in iter {
+            let pair = item?;
+            let tuple: Bound<'_, PyTuple> = pair
+                .downcast_into()
+                .map_err(|_| PyTypeError::new_err("mapping items must be (key, value) pairs"))?;
+            if tuple.len() != 2 {
+                return Err(PyTypeError::new_err(
+                    "mapping items must be (key, value) pairs",
+                ));
+            }
+            let key_yaml = py_to_yaml(py, &tuple.get_item(0)?, true)?;
+            let value_yaml = py_to_yaml(py, &tuple.get_item(1)?, false)?;
+            mapping.insert(key_yaml, value_yaml);
+        }
+        return Ok(Yaml::Mapping(mapping));
+    }
+
+    if obj.is_instance(sequence_cls.bind(py))?
+        && !obj.is_instance_of::<PyString>()
+        && !obj.is_instance_of::<PyBytes>()
+        && !obj.is_instance_of::<PyByteArray>()
+    {
+        let iter = PyIterator::from_object(obj.as_any())?;
+        let mut values = Vec::new();
+        for item in iter {
+            values.push(py_to_yaml(py, &item?, false)?);
+        }
+        return Ok(Yaml::Sequence(values));
+    }
+
+    if obj.is_instance_of::<PyBool>() {
+        let b: bool = obj.extract()?;
         return Ok(Yaml::Value(Scalar::Boolean(b)));
     }
 
@@ -1134,47 +1225,6 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
         return Ok(Yaml::Value(Scalar::String(Cow::Owned(
             s.to_str()?.to_owned(),
         ))));
-    }
-
-    if let Ok(dict) = obj.downcast::<PyDict>() {
-        let mut mapping = Mapping::with_capacity(dict.len());
-        for (key_obj, value_obj) in dict.iter() {
-            let key_yaml = py_to_yaml(py, &key_obj, true)?;
-            let value_yaml = py_to_yaml(py, &value_obj, false)?;
-            mapping.insert(key_yaml, value_yaml);
-        }
-        return Ok(Yaml::Mapping(mapping));
-    }
-
-    if let Ok(list) = obj.downcast::<PyList>() {
-        let mut values = Vec::with_capacity(list.len());
-        for item in list.iter() {
-            values.push(py_to_yaml(py, &item, false)?);
-        }
-        return Ok(Yaml::Sequence(values));
-    }
-
-    if let Ok(tuple) = obj.downcast::<PyTuple>() {
-        let mut values = Vec::with_capacity(tuple.len());
-        for item in tuple.iter() {
-            values.push(py_to_yaml(py, &item, false)?);
-        }
-        return Ok(Yaml::Sequence(values));
-    }
-
-    if let Ok(seq) = obj.downcast::<PySequence>() {
-        // Avoid treating strings as sequences since PySequence accepts them.
-        if obj.downcast::<PyString>().is_ok() {
-            // Already handled above; unreachable.
-        } else {
-            let len = seq.len()?;
-            let mut values = Vec::with_capacity(len);
-            let iter = PyIterator::from_object(seq.as_any())?;
-            for item in iter {
-                values.push(py_to_yaml(py, &item?, false)?);
-            }
-            return Ok(Yaml::Sequence(values));
-        }
     }
 
     Err(PyTypeError::new_err("unsupported type for YAML conversion"))
