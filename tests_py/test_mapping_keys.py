@@ -188,6 +188,68 @@ def test_tagged_scalar_mapping_key_remains_tagged():
     assert parsed[key] == "value"
 
 
+def test_other_yaml_node_types_on_keys():
+    # Alias nodes never reach mapping_to_py (resolved earlier), but BadValue/Representation
+    # should not cause wrapping; they are resolved or error before this stage.
+    # Use a plain scalar to ensure the default branch remains unwrapped.
+    parsed = yaml12.parse_yaml("plain: 1")
+    assert "plain" in parsed
+
+
+def test_mapping_key_handler_hash_error_wraps_once():
+    class HashError:
+        def __init__(self):
+            self.calls = 0
+
+        def __hash__(self):
+            self.calls += 1
+            raise TypeError("hash boom")
+
+    holder: dict[str, HashError] = {}
+
+    def handler(value):
+        obj = HashError()
+        holder["obj"] = obj
+        return obj
+
+    with pytest.raises(TypeError, match="hash boom"):
+        yaml12.parse_yaml("? !hash key\n: value\n", handlers={"!hash": handler})
+
+    assert holder["obj"].calls == 1
+
+
+def test_mapping_key_handler_hash_attr_checked_once():
+    counters: dict[str, int] = {"hash_attr_calls": 0, "hash_calls": 0}
+
+    def make_obj():
+        class HashAttrCounter:
+            def __getattribute__(self, name):
+                if name == "__hash__":
+                    counters["hash_attr_calls"] += 1
+                return object.__getattribute__(self, name)
+
+            def __hash__(self):
+                counters["hash_calls"] += 1
+                return 123
+
+        return HashAttrCounter()
+
+    holder: dict[str, HashAttrCounter] = {}
+
+    def handler(value: object) -> HashAttrCounter:  # noqa: ARG001
+        obj = make_obj()
+        holder["obj"] = obj
+        return obj
+
+    parsed = yaml12.parse_yaml("? !hash key\n: value\n", handlers={"!hash": handler})
+    key = next(iter(parsed))
+
+    assert holder["obj"] is key
+    assert counters["hash_attr_calls"] == 1
+    assert counters["hash_calls"] == 1
+    assert parsed[key] == "value"
+
+
 def test_tagged_collection_mapping_key_wraps_with_mapping_key():
     parsed = yaml12.parse_yaml("? !seq [a, b]\n: val\n")
 
@@ -272,3 +334,40 @@ def test_mapping_key_hash_error_propagates_once():
         yaml12.parse_yaml("? !hash key\n: value\n", handlers={"!hash": handler})
 
     assert holder["obj"].calls == 1
+
+
+def test_mapping_key_handler_returns_unhashable_wrapped_once():
+    class Unhashable:
+        __hash__ = None
+
+        def __init__(self, value):
+            self.value = value
+
+    def handler(val):
+        return Unhashable(val)
+
+    parsed = yaml12.parse_yaml("? !wrap key\n: value\n", handlers={"!wrap": handler})
+    key = next(iter(parsed))
+    assert isinstance(key, yaml12.Yaml)
+    assert isinstance(key.value, Unhashable)
+    assert parsed[key] == "value"
+
+
+def test_yaml_key_wraps_object_whose_hash_raises():
+    class HashBoom:
+        def __init__(self):
+            self.calls = 0
+
+        def __hash__(self):
+            self.calls += 1
+            raise TypeError("no hash")
+
+    obj = HashBoom()
+    key = yaml12.Yaml(obj)
+
+    assert isinstance(key, yaml12.Yaml)
+    assert obj.calls == 1  # probed once during Yaml hash computation
+
+    mapping = {key: "value"}
+    assert mapping[key] == "value"
+    assert obj.calls == 1

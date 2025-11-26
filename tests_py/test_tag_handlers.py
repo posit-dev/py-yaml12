@@ -163,6 +163,45 @@ def test_handler_exception_passes_through_for_key():
         yaml12.parse_yaml(text, handlers={"!boom": blow_up})
 
 
+def test_handlers_receive_plain_python_types():
+    captured: dict[str, tuple[type[object], object]] = {}
+
+    def remember(name: str):
+        def handler(value: object):
+            captured[name] = (type(value), value)
+            return value if name != "key" else f"handled:{value}"
+
+        return handler
+
+    handlers = {
+        "!s": remember("scalar"),
+        "!seq": remember("seq"),
+        "!m": remember("map"),
+        "!key": remember("key"),
+    }
+
+    text = """\
+scalar: !s value
+seq: !seq [1, 2]
+map: !m {a: 1, b: 2}
+? !key raw
+: val
+"""
+
+    parsed = yaml12.parse_yaml(text, handlers=handlers)
+
+    assert captured["scalar"][0] is str and captured["scalar"][1] == "value"
+    assert captured["seq"][0] is list and captured["seq"][1] == [1, 2]
+    assert captured["map"][0] is dict and captured["map"][1] == {"a": 1, "b": 2}
+    assert captured["key"][0] is str and captured["key"][1] == "raw"
+    assert parsed == {
+        "scalar": "value",
+        "seq": [1, 2],
+        "map": {"a": 1, "b": 2},
+        "handled:raw": "val",
+    }
+
+
 def test_tagged_scalar_preserves_string_value():
     out = yaml12.parse_yaml("!foo 001")
 

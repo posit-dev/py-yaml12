@@ -1,4 +1,4 @@
-use pyo3::exceptions::{PyIOError, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyAttributeError, PyIOError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::{
@@ -497,7 +497,7 @@ where
     Ok(loader.into_documents())
 }
 
-fn resolve_representation(node: &mut Yaml, _simplify: bool) {
+fn resolve_representation(node: &mut Yaml) {
     let (value, style, tag) = match mem::replace(node, Yaml::BadValue) {
         Yaml::Representation(value, style, tag) => (value, style, tag),
         other => {
@@ -555,20 +555,34 @@ fn yaml_to_py(
     handlers: Option<&HandlerRegistry>,
 ) -> Result<PyObject> {
     match node {
+        Yaml::Representation(_, _, _) => {
+            resolve_representation(node);
+            yaml_to_py(py, node, is_key, handlers)
+        }
         Yaml::Value(scalar) => Ok(scalar_to_py(py, scalar)),
+        Yaml::Sequence(seq) => {
+            let value = sequence_to_py(py, seq, handlers)?;
+            if is_key {
+                make_yaml_node(py, value, None)
+            } else {
+                Ok(value)
+            }
+        }
+        Yaml::Mapping(map) => {
+            let value = mapping_to_py(py, map, handlers)?;
+            if is_key {
+                make_yaml_node(py, value, None)
+            } else {
+                Ok(value)
+            }
+        }
         Yaml::Tagged(tag, inner) => convert_tagged(py, tag, inner.as_mut(), is_key, handlers),
-        Yaml::Sequence(seq) => sequence_to_py(py, seq, is_key, handlers),
-        Yaml::Mapping(map) => mapping_to_py(py, map, is_key, handlers),
         Yaml::Alias(_) => Err(PyValueError::new_err(
             "internal error: encountered unresolved YAML alias node",
         )),
         Yaml::BadValue => Err(PyValueError::new_err(
             "encountered an invalid YAML scalar value",
         )),
-        Yaml::Representation(_, _, _) => {
-            resolve_representation(node, true);
-            yaml_to_py(py, node, is_key, handlers)
-        }
     }
 }
 
@@ -595,7 +609,6 @@ fn scalar_to_py(py: Python<'_>, scalar: &Scalar) -> PyObject {
 fn sequence_to_py(
     py: Python<'_>,
     seq: &mut [Yaml],
-    _is_key: bool,
     handlers: Option<&HandlerRegistry>,
 ) -> Result<PyObject> {
     let mut values = Vec::with_capacity(seq.len());
@@ -608,13 +621,11 @@ fn sequence_to_py(
 fn mapping_to_py(
     py: Python<'_>,
     map: &mut Mapping,
-    _is_key: bool,
     handlers: Option<&HandlerRegistry>,
 ) -> Result<PyObject> {
     let dict = PyDict::new(py);
     for (mut key, mut value) in map.drain() {
         let key_obj = yaml_to_py(py, &mut key, true, handlers)?;
-        let key_obj = ensure_hashable_mapping_key(py, key_obj)?;
         let value_obj = yaml_to_py(py, &mut value, false, handlers)?;
         dict.set_item(key_obj, value_obj)?;
     }
@@ -623,6 +634,42 @@ fn mapping_to_py(
 
 fn render_tag_cached<'a>(rendered: &'a mut Option<String>, tag: &Tag) -> &'a str {
     rendered.get_or_insert_with(|| render_tag(tag)).as_str()
+}
+
+fn handler_result_needs_wrap(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
+    if is_yaml_node(py, obj)? || obj.is_none() {
+        return Ok(false);
+    }
+
+    if obj.is_instance_of::<PyDict>() || obj.is_instance_of::<PyList>() {
+        return Ok(true);
+    }
+
+    if obj.is_instance_of::<PyString>()
+        || obj.is_instance_of::<PyBytes>()
+        || obj.is_instance_of::<PyByteArray>()
+    {
+        return Ok(false);
+    }
+
+    let (mapping_cls, sequence_cls) = abc_types(py)?;
+    if obj.is_instance(mapping_cls.bind(py))? || obj.is_instance(sequence_cls.bind(py))? {
+        return hash_is_disabled(py, obj);
+    }
+
+    hash_is_disabled(py, obj)
+}
+
+fn hash_is_disabled(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
+    obj.getattr("__hash__")
+        .map(|hash_attr| hash_attr.is_none())
+        .or_else(|err| {
+            if err.is_instance_of::<PyAttributeError>(py) {
+                Ok(false)
+            } else {
+                Err(err)
+            }
+        })
 }
 
 fn convert_tagged(
@@ -636,17 +683,30 @@ fn convert_tagged(
 
     if let Some(registry) = handlers {
         if let Some(handler) = registry.get_for_tag(tag) {
-            let value = yaml_to_py(py, node, is_key, handlers)?;
-            return registry.apply(py, handler, value);
+            // Convert inner node in value mode to avoid pre-wrapping keys; the tag logic below
+            // handles hashability and tag preservation.
+            let value = yaml_to_py(py, node, false, handlers)?;
+            let handled = registry.apply(py, handler, value)?;
+            if is_key && handler_result_needs_wrap(py, handled.bind(py))? {
+                return make_yaml_node(py, handled, None);
+            }
+            return Ok(handled);
         }
     }
 
-    let value = yaml_to_py(py, node, is_key, handlers)?;
+    let value = yaml_to_py(py, node, false, handlers)?;
 
     let normalized_suffix = normalized_suffix(tag.suffix.as_str());
     if is_core_tag(tag) {
         return match normalized_suffix {
-            "str" | "null" | "bool" | "int" | "float" | "seq" | "map" => Ok(value),
+            "str" | "null" | "bool" | "int" | "float" => Ok(value),
+            "seq" | "map" => {
+                if is_key {
+                    make_yaml_node(py, value, None)
+                } else {
+                    Ok(value)
+                }
+            }
             "timestamp" | "set" | "omap" | "pairs" | "binary" => {
                 let rendered = render_tag_cached(&mut rendered_tag, tag);
                 make_yaml_node(py, value, Some(rendered))
@@ -691,56 +751,6 @@ fn abc_types(py: Python<'_>) -> Result<&(Py<PyAny>, Py<PyAny>)> {
             abc.getattr("Sequence")?.unbind(),
         ))
     })
-}
-
-fn hash_disabled(obj: &Bound<'_, PyAny>) -> bool {
-    obj.getattr("__hash__")
-        .map(|hash_attr| hash_attr.is_none())
-        .unwrap_or(false)
-}
-
-fn should_wrap_in_mapping_key(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
-    if is_yaml_node(py, obj)? {
-        return Ok(false);
-    }
-
-    if obj.is_instance_of::<PyDict>() || obj.is_instance_of::<PyList>() {
-        return Ok(true);
-    }
-
-    if obj.is_instance_of::<PyString>()
-        || obj.is_instance_of::<PyBytes>()
-        || obj.is_instance_of::<PyByteArray>()
-    {
-        return Ok(false);
-    }
-
-    let (mapping_cls, sequence_cls) = abc_types(py)?;
-    if obj.is_instance(mapping_cls.bind(py))? {
-        return Ok(hash_disabled(obj));
-    }
-
-    if obj.is_instance(sequence_cls.bind(py))? {
-        if obj.is_instance_of::<PyString>()
-            || obj.is_instance_of::<PyBytes>()
-            || obj.is_instance_of::<PyByteArray>()
-        {
-            return Ok(false);
-        }
-        return Ok(hash_disabled(obj));
-    }
-
-    Ok(false)
-}
-
-fn ensure_hashable_mapping_key(py: Python<'_>, key_obj: PyObject) -> Result<PyObject> {
-    let bound = key_obj.bind(py);
-    let needs_wrap = should_wrap_in_mapping_key(py, bound)?;
-    if needs_wrap {
-        return make_yaml_node(py, key_obj, None);
-    }
-    bound.hash()?;
-    Ok(key_obj)
 }
 
 #[cfg(test)]
@@ -1142,11 +1152,6 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
         return Ok(Yaml::Sequence(values));
     }
 
-    if obj.is_instance_of::<PyBool>() {
-        let b: bool = obj.extract()?;
-        return Ok(Yaml::Value(Scalar::Boolean(b)));
-    }
-
     if let Ok(i) = obj.extract::<i128>() {
         if i < i64::MIN as i128 || i > i64::MAX as i128 {
             return Err(PyValueError::new_err("integer out of range for YAML"));
@@ -1246,7 +1251,11 @@ def _freeze(obj):
         return ("map", tuple(sorted((_freeze(k), _freeze(v)) for k, v in obj.items())))
     if isinstance(obj, Sequence) and not isinstance(obj, (str, bytes, bytearray)):
         return ("seq", tuple(_freeze(x) for x in obj))
-    return obj
+    try:
+        hash(obj)
+        return obj
+    except TypeError:
+        return ("unhashable", id(obj))
 
 @dataclass(frozen=True)
 class Yaml:
@@ -1364,7 +1373,7 @@ mod tests {
 
         for (input, expected_value) in cases {
             let mut parsed = load_scalar(input);
-            resolve_representation(&mut parsed, true);
+            resolve_representation(&mut parsed);
             match parsed {
                 Yaml::Value(Scalar::String(value)) => {
                     assert_eq!(
@@ -1418,7 +1427,7 @@ mod tests {
 
         for input in cases {
             let mut parsed = load_scalar(input);
-            resolve_representation(&mut parsed, true);
+            resolve_representation(&mut parsed);
             match parsed {
                 Yaml::Value(Scalar::Null) => {
                     // Canonical null scalars should not carry tags.

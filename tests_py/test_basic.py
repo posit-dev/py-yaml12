@@ -6,6 +6,16 @@ def test_parse_simple_mapping():
     assert out == {"foo": 1, "bar": True}
 
 
+def test_parse_string_keys_fast_path():
+    out = yaml12.parse_yaml("a: 1\nb: 2\nc: three")
+    assert out == {"a": 1, "b": 2, "c": "three"}
+
+
+def test_parse_scalar_sequence_fast_path():
+    out = yaml12.parse_yaml("- 1\n- 2\n- 3")
+    assert out == [1, 2, 3]
+
+
 def test_parse_empty_is_none():
     assert yaml12.parse_yaml("") is None
 
