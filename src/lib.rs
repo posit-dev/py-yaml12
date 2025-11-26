@@ -1330,6 +1330,7 @@ class Yaml:
 #[pymodule]
 pub fn yaml12(py: Python<'_>, m: &Bound<'_, PyModule>) -> Result<()> {
     init_python_helpers(py, m)?;
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_function(wrap_pyfunction!(parse_yaml, m)?)?;
     m.add_function(wrap_pyfunction!(read_yaml, m)?)?;
     m.add_function(wrap_pyfunction!(format_yaml, m)?)?;

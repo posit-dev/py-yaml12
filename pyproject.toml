@@ -4,14 +4,36 @@ build-backend = "maturin"
 
 [project]
 name = "yaml12"
+description = "A modern YAML 1.2 parser and emitter for Python, written in Rust."
+readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.10"
 authors = [{ name = "Tomasz Kalinowski" }]
 maintainers = [{ name = "Tomasz Kalinowski" }]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Text Processing :: Markup",
 ]
+keywords = ["yaml", "parser", "serializer", "rust", "pyo3", "abi3"]
 dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/t-kalinowski/py-yaml12"
+Documentation = "https://github.com/t-kalinowski/py-yaml12/tree/main/docs"
+Source = "https://github.com/t-kalinowski/py-yaml12"
+Issues = "https://github.com/t-kalinowski/py-yaml12/issues"
+
 [tool.maturin]
 features = ["pyo3/extension-module", "pyo3/abi3-py310"]
