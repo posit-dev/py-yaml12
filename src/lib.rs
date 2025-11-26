@@ -2,8 +2,8 @@ use pyo3::exceptions::{PyIOError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::{
-    PyAnyMethods, PyByteArray, PyBytes, PyDict, PyDictMethods, PyList, PyModule, PySequence,
-    PySequenceMethods, PyString, PyTuple,
+    PyAnyMethods, PyByteArray, PyBytes, PyDict, PyDictMethods, PyIterator, PyList, PyModule,
+    PySequence, PySequenceMethods, PyString, PyTuple,
 };
 use pyo3::Bound;
 use pyo3::IntoPyObjectExt;
@@ -214,6 +214,23 @@ impl HandlerRegistry {
     }
 }
 
+fn handler_registry_from_arg(
+    py: Python<'_>,
+    handlers: Option<&PyObject>,
+) -> Result<Option<HandlerRegistry>> {
+    match handlers {
+        None => Ok(None),
+        Some(obj) => {
+            let bound = obj.bind(py);
+            if bound.is_none() {
+                Ok(None)
+            } else {
+                HandlerRegistry::from_py(py, Some(bound))
+            }
+        }
+    }
+}
+
 fn parse_handler_name(name: &str) -> Result<HandlerKeyOwned> {
     if let Some((handle, suffix)) = split_tag_name(name) {
         return Ok(HandlerKeyOwned::from_parts(handle, suffix));
@@ -267,7 +284,7 @@ fn parse_yaml(
     multi: bool,
     handlers: Option<PyObject>,
 ) -> Result<PyObject> {
-    let handler_registry = HandlerRegistry::from_py(py, handlers.as_ref().map(|obj| obj.bind(py)))?;
+    let handler_registry = handler_registry_from_arg(py, handlers.as_ref())?;
     let handlers = handler_registry.as_ref();
 
     let bound = text.bind(py);
@@ -337,7 +354,7 @@ fn read_yaml(
     multi: bool,
     handlers: Option<PyObject>,
 ) -> Result<PyObject> {
-    let handler_registry = HandlerRegistry::from_py(py, handlers.as_ref().map(|obj| obj.bind(py)))?;
+    let handler_registry = handler_registry_from_arg(py, handlers.as_ref())?;
     let handlers = handler_registry.as_ref();
 
     let bound = path.bind(py);
@@ -675,7 +692,6 @@ fn sequence_to_py(
 ) -> Result<PyObject> {
     let mut values = Vec::with_capacity(seq.len());
     for node in seq {
-        resolve_representation(node, true);
         values.push(yaml_to_py(py, node, false, handlers)?);
     }
     Ok(PyList::new(py, values)?.unbind().into())
@@ -689,7 +705,6 @@ fn mapping_to_py(
 ) -> Result<PyObject> {
     let dict = PyDict::new(py);
     for (mut key, mut value) in map.drain() {
-        resolve_representation(&mut key, true);
         let key_obj = yaml_to_py(py, &mut key, true, handlers)?;
         let key_obj = ensure_hashable_mapping_key(py, key_obj)?;
         let value_obj = yaml_to_py(py, &mut value, false, handlers)?;
@@ -1154,9 +1169,9 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
         } else {
             let len = seq.len()?;
             let mut values = Vec::with_capacity(len);
-            for idx in 0..len {
-                let item = seq.get_item(idx)?;
-                values.push(py_to_yaml(py, &item, false)?);
+            let iter = PyIterator::from_object(seq.as_any())?;
+            for item in iter {
+                values.push(py_to_yaml(py, &item?, false)?);
             }
             return Ok(Yaml::Sequence(values));
         }
