@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import textwrap
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 import yaml12
 
@@ -221,3 +221,31 @@ def test_handler_mapping_key_returns_unhashable_mapping_wrapped():
     assert isinstance(key, yaml12.Yaml)
     assert isinstance(key.value, UnhashableMapping)
     assert parsed[yaml12.Yaml(UnhashableMapping("key"))] == "v"
+
+
+class _HashlessSequence(Sequence):
+    __hash__ = None
+
+    def __init__(self, value):
+        self._items = list(value)
+
+    def __getitem__(self, idx):
+        return self._items[idx]
+
+    def __len__(self):
+        return len(self._items)
+
+    def __iter__(self):
+        return iter(self._items)
+
+
+def test_handler_sequence_key_with_disabled_hash_is_wrapped():
+    text = "? !wrap [a, b]\n: v\n"
+    handlers = {"!wrap": lambda value: _HashlessSequence(value)}
+
+    parsed = yaml12.parse_yaml(text, handlers=handlers)
+    key = next(iter(parsed))
+
+    assert isinstance(key, yaml12.Yaml)
+    assert isinstance(key.value, _HashlessSequence)
+    assert parsed[key] == "v"

@@ -19,11 +19,11 @@ use std::mem;
 use std::path::PathBuf;
 
 type Result<T> = PyResult<T>;
+type BuiltinTypes = (Py<PyAny>, Py<PyAny>, Py<PyAny>, Py<PyAny>);
 
 static YAML_CLASS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
 static ABC_TYPES: GILOnceCell<(Py<PyAny>, Py<PyAny>)> = GILOnceCell::new();
-static BUILTIN_TYPES: GILOnceCell<(Py<PyAny>, Py<PyAny>, Py<PyAny>, Py<PyAny>)> =
-    GILOnceCell::new();
+static BUILTIN_TYPES: GILOnceCell<BuiltinTypes> = GILOnceCell::new();
 const READ_CHUNK_SIZE: usize = 8192;
 
 fn pathlike_to_pathbuf(obj: &Bound<'_, PyAny>) -> Result<Option<PathBuf>> {
@@ -45,33 +45,6 @@ struct HandlerKeyOwned {
     suffix: String,
 }
 
-impl PartialEq<HandlerKeyRef<'_>> for HandlerKeyOwned {
-    fn eq(&self, other: &HandlerKeyRef<'_>) -> bool {
-        self.handle == other.handle && self.suffix == other.suffix
-    }
-}
-
-impl PartialEq<HandlerKeyOwned> for HandlerKeyRef<'_> {
-    fn eq(&self, other: &HandlerKeyOwned) -> bool {
-        self.handle == other.handle && self.suffix == other.suffix
-    }
-}
-
-#[derive(Copy, Clone, Hash, PartialEq, Eq)]
-struct HandlerKeyRef<'a> {
-    handle: &'a str,
-    suffix: &'a str,
-}
-
-impl<'a> From<&'a Tag> for HandlerKeyRef<'a> {
-    fn from(tag: &'a Tag) -> Self {
-        Self {
-            handle: tag.handle.as_str(),
-            suffix: tag.suffix.as_str(),
-        }
-    }
-}
-
 impl HandlerKeyOwned {
     fn from_parts(handle: &str, suffix: &str) -> Self {
         Self {
@@ -81,20 +54,10 @@ impl HandlerKeyOwned {
     }
 }
 
-struct HandlerEntry {
-    key: HandlerKeyOwned,
-    handler: Py<PyAny>,
-}
-
 type HandlerMap = HashMap<String, HashMap<String, Py<PyAny>>>;
 
-enum HandlerStore {
-    Small(Vec<HandlerEntry>),
-    Large(HandlerMap),
-}
-
 struct HandlerRegistry {
-    store: HandlerStore,
+    map: HandlerMap,
 }
 
 impl HandlerRegistry {
@@ -110,38 +73,12 @@ impl HandlerRegistry {
         let dict: &Bound<'_, PyDict> = obj.downcast().map_err(|_| {
             PyTypeError::new_err("`handlers` must be a dict mapping tag strings to callables")
         })?;
+
         if dict.is_empty() {
             return Ok(None);
         }
 
-        const HASHMAP_MIN_LEN: usize = 8;
-        let use_hash_map = dict.len() >= HASHMAP_MIN_LEN;
-
-        if use_hash_map {
-            let mut handlers_map: HandlerMap = HashMap::with_capacity(dict.len());
-            for (key_obj, value_obj) in dict.iter() {
-                let key_str = key_obj.downcast::<PyString>().map_err(|_| {
-                    PyTypeError::new_err("handler keys must be strings or subclasses of str")
-                })?;
-                let key_text = key_str.to_str()?;
-                let key = parse_handler_name(key_text)?;
-                if !value_obj.is_callable() {
-                    return Err(PyTypeError::new_err(format!(
-                        "handler `{}` must be callable",
-                        key_text
-                    )));
-                }
-                handlers_map
-                    .entry(key.handle)
-                    .or_default()
-                    .insert(key.suffix, value_obj.unbind());
-            }
-            return Ok(Some(Self {
-                store: HandlerStore::Large(handlers_map),
-            }));
-        }
-
-        let mut entries: Vec<HandlerEntry> = Vec::with_capacity(dict.len());
+        let mut handlers_map: HandlerMap = HashMap::with_capacity(dict.len());
         for (key_obj, value_obj) in dict.iter() {
             let key_str = key_obj.downcast::<PyString>().map_err(|_| {
                 PyTypeError::new_err("handler keys must be strings or subclasses of str")
@@ -154,33 +91,19 @@ impl HandlerRegistry {
                     key_text
                 )));
             }
-
-            let handler = value_obj.unbind();
-
-            if let Some(existing) = entries.iter_mut().find(|entry| entry.key == key) {
-                existing.handler = handler;
-            } else {
-                entries.push(HandlerEntry { key, handler });
-            }
+            handlers_map
+                .entry(key.handle)
+                .or_default()
+                .insert(key.suffix, value_obj.unbind());
         }
 
-        Ok(Some(Self {
-            store: HandlerStore::Small(entries),
-        }))
+        Ok(Some(Self { map: handlers_map }))
     }
 
     fn get_for_tag(&self, tag: &Tag) -> Option<&Py<PyAny>> {
-        let key_ref = HandlerKeyRef::from(tag);
-        let handler = match &self.store {
-            HandlerStore::Small(entries) => entries
-                .iter()
-                .find(|entry| entry.key == key_ref)
-                .map(|entry| &entry.handler),
-            HandlerStore::Large(map) => map
-                .get(tag.handle.as_str())
-                .and_then(|suffixes| suffixes.get(tag.suffix.as_str())),
-        };
-        handler
+        self.map
+            .get(tag.handle.as_str())
+            .and_then(|suffixes| suffixes.get(tag.suffix.as_str()))
     }
 
     fn apply(&self, py: Python<'_>, handler: &Py<PyAny>, arg: PyObject) -> Result<PyObject> {
@@ -188,7 +111,7 @@ impl HandlerRegistry {
     }
 }
 
-fn builtin_types(py: Python<'_>) -> Result<&(Py<PyAny>, Py<PyAny>, Py<PyAny>, Py<PyAny>)> {
+fn builtin_types(py: Python<'_>) -> Result<&BuiltinTypes> {
     BUILTIN_TYPES.get_or_try_init(py, || -> Result<_> {
         Ok((
             py.get_type::<PyBool>().unbind().into(),
@@ -764,6 +687,12 @@ fn abc_types(py: Python<'_>) -> Result<&(Py<PyAny>, Py<PyAny>)> {
     })
 }
 
+fn hash_disabled(obj: &Bound<'_, PyAny>) -> bool {
+    obj.getattr("__hash__")
+        .map(|hash_attr| hash_attr.is_none())
+        .unwrap_or(false)
+}
+
 fn should_wrap_in_mapping_key(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
     if is_yaml_node(py, obj)? {
         return Ok(false);
@@ -782,7 +711,7 @@ fn should_wrap_in_mapping_key(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<
 
     let (mapping_cls, sequence_cls) = abc_types(py)?;
     if obj.is_instance(mapping_cls.bind(py))? {
-        return Ok(true);
+        return Ok(hash_disabled(obj));
     }
 
     if obj.is_instance(sequence_cls.bind(py))? {
@@ -792,7 +721,7 @@ fn should_wrap_in_mapping_key(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<
         {
             return Ok(false);
         }
-        return Ok(true);
+        return Ok(hash_disabled(obj));
     }
 
     Ok(false)
@@ -800,6 +729,9 @@ fn should_wrap_in_mapping_key(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<
 
 fn ensure_hashable_mapping_key(py: Python<'_>, key_obj: PyObject) -> Result<PyObject> {
     let bound = key_obj.bind(py);
+    if should_wrap_in_mapping_key(py, bound)? {
+        return make_yaml_node(py, key_obj, None);
+    }
     if let Err(err) = bound.hash() {
         if err.is_instance_of::<PyTypeError>(py) && should_wrap_in_mapping_key(py, bound)? {
             return make_yaml_node(py, key_obj, None);
@@ -850,10 +782,10 @@ fn render_tag(tag: &Tag) -> String {
 struct PyReadIter<'py> {
     py: Python<'py>,
     reader: Py<PyAny>,
-    chars: std::str::Chars<'static>,
+    chars: std::str::Chars<'py>,
+    current_chunk: Option<Py<PyAny>>,
     done: bool,
     error: RefCell<Option<PyErr>>,
-    buffer: String,
 }
 
 impl<'py> PyReadIter<'py> {
@@ -862,9 +794,9 @@ impl<'py> PyReadIter<'py> {
             py,
             reader,
             chars: "".chars(),
+            current_chunk: None,
             done: false,
             error: RefCell::new(None),
-            buffer: String::new(),
         }
     }
 
@@ -873,6 +805,8 @@ impl<'py> PyReadIter<'py> {
     }
 
     fn fetch_next_chunk(&mut self) -> bool {
+        self.current_chunk = None;
+        self.chars = "".chars();
         let read = self.reader.bind(self.py);
         let result = read.call1((READ_CHUNK_SIZE,)).or_else(|err| {
             if err.is_instance_of::<PyTypeError>(self.py) {
@@ -882,65 +816,69 @@ impl<'py> PyReadIter<'py> {
             }
         });
 
-        let obj = match result {
-            Ok(obj) => obj,
+        let chunk: Py<PyAny> = match result {
+            Ok(obj) => obj.unbind(),
             Err(err) => {
                 self.record_error(err);
                 return false;
             }
         };
 
-        if obj.is_instance_of::<PyString>() {
-            let s: Bound<'_, PyString> = obj.downcast_into().expect("type checked above");
-            let text = match s.to_str() {
-                Ok(text) => text,
-                Err(err) => {
-                    self.record_error(err);
+        self.current_chunk = Some(chunk);
+        let chars: Option<std::str::Chars<'py>> = {
+            let bound = self
+                .current_chunk
+                .as_ref()
+                .expect("current chunk should be set")
+                .bind(self.py);
+            if let Ok(s) = bound.downcast::<PyString>() {
+                let text = match s.to_str() {
+                    Ok(text) => text,
+                    Err(err) => {
+                        self.record_error(err);
+                        return false;
+                    }
+                };
+                if text.is_empty() {
                     return false;
                 }
-            };
-            if text.is_empty() {
-                return false;
-            }
-            self.buffer.clear();
-            self.buffer.push_str(text);
-            // Safe because `self.buffer` lives for the lifetime of the iterator.
-            self.chars = unsafe {
-                std::mem::transmute::<std::str::Chars<'_>, std::str::Chars<'static>>(
-                    self.buffer.chars(),
-                )
-            };
-            true
-        } else if obj.is_instance_of::<PyBytes>() {
-            let bytes: Bound<'_, PyBytes> = obj.downcast_into().expect("type checked above");
-            let slice = bytes.as_bytes();
-            if slice.is_empty() {
-                return false;
-            }
-            let text = match std::str::from_utf8(slice) {
-                Ok(text) => text,
-                Err(err) => {
-                    self.record_error(PyValueError::new_err(format!(
-                        "connection.read() returned non-UTF-8 bytes ({err})"
-                    )));
+                // SAFETY: `self.current_chunk` owns the Python object backing `text`
+                // and the GIL is held for the lifetime `'py`.
+                let chars: std::str::Chars<'py> =
+                    unsafe { std::mem::transmute::<_, std::str::Chars<'py>>(text.chars()) };
+                Some(chars)
+            } else if let Ok(bytes) = bound.downcast::<PyBytes>() {
+                let slice = bytes.as_bytes();
+                if slice.is_empty() {
                     return false;
                 }
-            };
-            self.buffer.clear();
-            self.buffer.push_str(text);
-            // Safe because `self.buffer` lives for the lifetime of the iterator.
-            self.chars = unsafe {
-                std::mem::transmute::<std::str::Chars<'_>, std::str::Chars<'static>>(
-                    self.buffer.chars(),
-                )
-            };
-            true
-        } else {
-            self.record_error(PyTypeError::new_err(
-                "`read` must return str or bytes objects",
-            ));
-            false
+                let text = match std::str::from_utf8(slice) {
+                    Ok(text) => text,
+                    Err(err) => {
+                        self.record_error(PyValueError::new_err(format!(
+                            "connection.read() returned non-UTF-8 bytes ({err})"
+                        )));
+                        return false;
+                    }
+                };
+                // SAFETY: `self.current_chunk` owns the bytes backing `text` and the
+                // GIL is held for the lifetime `'py`.
+                let chars: std::str::Chars<'py> =
+                    unsafe { std::mem::transmute::<_, std::str::Chars<'py>>(text.chars()) };
+                Some(chars)
+            } else {
+                self.record_error(PyTypeError::new_err(
+                    "`read` must return str or bytes objects",
+                ));
+                None
+            }
+        };
+
+        if let Some(chars) = chars {
+            self.chars = chars;
+            return true;
         }
+        false
     }
 }
 
@@ -1159,9 +1097,9 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
         if obj.downcast::<PyString>().is_err() {
             let len = seq.len()?;
             let mut values = Vec::with_capacity(len);
-            let iter = PyIterator::from_object(seq.as_any())?;
-            for item in iter {
-                values.push(py_to_yaml(py, &item?, false)?);
+            for idx in 0..len {
+                let item = seq.get_item(idx)?;
+                values.push(py_to_yaml(py, &item, false)?);
             }
             return Ok(Yaml::Sequence(values));
         }

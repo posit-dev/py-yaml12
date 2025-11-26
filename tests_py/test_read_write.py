@@ -3,6 +3,7 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 import io
+import threading
 
 import pytest
 
@@ -185,6 +186,67 @@ def test_read_yaml_streaming_bad_type_error():
 def test_read_yaml_streaming_midway_error():
     with pytest.raises(RuntimeError, match="boom later"):
         yaml12.read_yaml(_ErroringReaderAfterFirst(), multi=True)
+
+
+class _AlternatingChunkReader:
+    def __init__(self, text: str, chunk_size: int = 1, start_with_bytes: bool = False):
+        self.data = text.encode("utf-8")
+        self.chunk_size = chunk_size
+        self.pos = 0
+        self.return_bytes = start_with_bytes
+
+    def read(self, size: int = -1):
+        if self.pos >= len(self.data):
+            return b"" if self.return_bytes else ""
+        end = min(len(self.data), self.pos + (self.chunk_size if size < 0 else size))
+        chunk = self.data[self.pos : end]
+        self.pos = end
+        result = chunk if self.return_bytes else chunk.decode("utf-8")
+        self.return_bytes = not self.return_bytes
+        return result
+
+
+def test_read_yaml_streaming_alternating_stress():
+    items = list(range(2000))
+    yaml_text = "".join(f"- {i}\n" for i in items)
+
+    for start_with_bytes in (False, True):
+        reader = _AlternatingChunkReader(
+            yaml_text, chunk_size=1, start_with_bytes=start_with_bytes
+        )
+        parsed = yaml12.read_yaml(reader)
+        assert parsed == items
+        # repeat with different chunking to stress unsafe lifetime cast
+        reader = _AlternatingChunkReader(
+            yaml_text, chunk_size=3, start_with_bytes=start_with_bytes
+        )
+        parsed = yaml12.read_yaml(reader)
+        assert parsed == items
+
+
+def test_read_yaml_streaming_alternating_stress_threads():
+    items = list(range(1000))
+    yaml_text = "".join(f"- {i}\n" for i in items)
+
+    def worker(start_with_bytes: bool):
+        for chunk_size in (1, 2, 4):
+            reader = _AlternatingChunkReader(
+                yaml_text, chunk_size=chunk_size, start_with_bytes=start_with_bytes
+            )
+            parsed = yaml12.read_yaml(reader)
+            assert parsed == items
+
+    threads = [
+        threading.Thread(target=worker, args=(False,)),
+        threading.Thread(target=worker, args=(True,)),
+        threading.Thread(target=worker, args=(False,)),
+        threading.Thread(target=worker, args=(True,)),
+    ]
+
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
 
 def test_read_yaml_accepts_pathlike(tmp_path: Path):

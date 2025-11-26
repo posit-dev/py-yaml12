@@ -616,6 +616,25 @@ def test_format_yaml_handles_custom_sequence_without_int_coercion():
     assert yaml12.parse_yaml(encoded) == obj.data
 
 
+def test_format_yaml_sequence_without_iter():
+    class IndexOnlySequence(Sequence):
+        def __init__(self):
+            self.data = [1, 2, 3]
+
+        def __len__(self):
+            return len(self.data)
+
+        def __getitem__(self, idx):
+            return self.data[idx]
+
+        def __iter__(self):
+            raise RuntimeError("iterator should not be used")
+
+    obj = IndexOnlySequence()
+    encoded = yaml12.format_yaml(obj)
+    assert yaml12.parse_yaml(encoded) == obj.data
+
+
 def test_parse_yaml_resolves_anchors_and_aliases():
     yaml = textwrap.dedent(
         """\
