@@ -1055,14 +1055,43 @@ fn format_yaml_impl(py: Python<'_>, value: &Yaml<'static>, multi: bool) -> Resul
     }
 }
 
-fn write_to_stdout(content: &str) -> Result<()> {
+fn write_to_real_stdout(content: &str) -> io::Result<()> {
     let mut stdout = io::stdout();
-    stdout
-        .write_all(content.as_bytes())
-        .map_err(|err| PyIOError::new_err(format!("failed to write to stdout: {err}")))?;
-    stdout
-        .flush()
-        .map_err(|err| PyIOError::new_err(format!("failed to flush stdout: {err}")))
+    stdout.write_all(content.as_bytes())?;
+    stdout.flush()
+}
+
+fn write_to_stdout(py: Python<'_>, content: &str) -> Result<()> {
+    let ptr = unsafe { ffi::PySys_GetObject(c"stdout".as_ptr()) };
+    if ptr.is_null() {
+        write_to_real_stdout(content)
+            .map_err(|err| PyIOError::new_err(format!("failed to write to stdout: {err}")))?;
+        return Ok(());
+    }
+
+    let stdout = unsafe { Bound::from_borrowed_ptr(py, ptr) };
+    if stdout.is_none() {
+        write_to_real_stdout(content)
+            .map_err(|err| PyIOError::new_err(format!("failed to write to stdout: {err}")))?;
+        return Ok(());
+    }
+
+    if stdout.call_method1("write", (content,)).is_err() {
+        // If sys.stdout is malformed, fall back to the real stdout and
+        // suppress the Python-level exception.
+        write_to_real_stdout(content)
+            .map_err(|err| PyIOError::new_err(format!("failed to write to stdout: {err}")))?;
+        return Ok(());
+    }
+
+    // Best-effort flush; never raise for malformed stdout.
+    if let Ok(flush) = stdout.getattr("flush") {
+        if !flush.is_none() {
+            let _ = flush.call0();
+        }
+    }
+
+    Ok(())
 }
 
 #[allow(clippy::only_used_in_recursion)]
