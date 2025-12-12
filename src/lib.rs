@@ -30,6 +30,24 @@ const GIL_RELEASE_MIN_PARSE_LEN: usize = 2048;
 const GIL_RELEASE_MIN_EMIT_DOCS: usize = 4;
 const GIL_RELEASE_MIN_EMIT_COLLECTION_LEN: usize = 32;
 
+fn unexpected_item_description(obj: &Bound<'_, PyAny>) -> String {
+    let ty = obj
+        .get_type()
+        .name()
+        .map(|name| name.to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    let mut repr = obj
+        .repr()
+        .and_then(|s| s.to_str().map(|text| text.to_string()))
+        .unwrap_or_else(|_| "<repr failed>".to_string());
+    const REPR_LIMIT: usize = 200;
+    if repr.len() > REPR_LIMIT {
+        repr.truncate(REPR_LIMIT);
+        repr.push_str("...");
+    }
+    format!("{ty}: {repr}")
+}
+
 fn pathlike_to_pathbuf(obj: &Bound<'_, PyAny>) -> Result<Option<PathBuf>> {
     match obj.extract::<PathBuf>() {
         Ok(path) => Ok(Some(path)),
@@ -175,7 +193,7 @@ fn split_tag_name(name: &str) -> Option<(&str, &str)> {
 /// Parse YAML text into Python values.
 ///
 /// Args:
-///     text (str | Sequence[str]): YAML text or sequence joined with newlines.
+///     text (str | Iterable[str]): YAML text or an iterable of text lines to be joined with `"\n"`.
 ///     multi (bool): Return a list of documents when true; otherwise a single document or None for empty input.
 ///     handlers (dict[str, Callable] | None): Optional tag handlers for values and keys; matching handlers receive the parsed value.
 ///
@@ -225,18 +243,84 @@ fn parse_yaml(
         let mut lines: Vec<Py<PyString>> = Vec::with_capacity(len);
         for idx in 0..len {
             let item = seq.get_item(idx)?;
-            let s: Bound<'_, PyString> = item.downcast_into().map_err(|_| {
-                PyTypeError::new_err("`text` sequence must contain only strings without None")
+            let s: Bound<'_, PyString> = item.downcast_into().map_err(|err| {
+                let item = err.into_inner();
+                PyTypeError::new_err(format!(
+                    "`text` sequence must contain only strings (index {idx} got {})",
+                    unexpected_item_description(&item)
+                ))
             })?;
             lines.push(s.unbind());
         }
-        let iter = JoinedLinesIter::new(py, &lines);
-        let docs = load_yaml_documents_iter(iter, multi)?;
+
+        let mut slices: Vec<&str> = Vec::with_capacity(lines.len());
+        let mut total_bytes: usize = 0;
+        for line in &lines {
+            let slice = line.bind(py).to_str()?;
+            total_bytes = total_bytes.saturating_add(slice.len());
+            slices.push(slice);
+        }
+        total_bytes = total_bytes.saturating_add(lines.len().saturating_sub(1));
+        let release_gil = should_release_gil_for_parse(total_bytes);
+        let docs = load_yaml_documents_slices(py, &slices, multi, release_gil)?;
+        return docs_to_python(py, docs, multi, handlers);
+    }
+
+    // Preserve the contract that file-like objects are handled by `read_yaml`, not `parse_yaml`.
+    if bound.getattr("read").is_ok() {
+        return Err(PyTypeError::new_err(
+            "`text` must be a string or an iterable of strings",
+        ));
+    }
+
+    if bound.is_instance_of::<PyDict>() {
+        return Err(PyTypeError::new_err(
+            "`text` must be a string or an iterable of strings",
+        ));
+    }
+    let (mapping_cls, _) = abc_types(py)?;
+    if bound.is_instance(mapping_cls.bind(py))? {
+        return Err(PyTypeError::new_err(
+            "`text` must be a string or an iterable of strings",
+        ));
+    }
+
+    if let Ok(iter) = PyIterator::from_object(bound.as_any()) {
+        let mut lines: Vec<Py<PyString>> = Vec::new();
+        for (idx, item) in iter.enumerate() {
+            let item = item?;
+            let s: Bound<'_, PyString> = item.downcast_into().map_err(|err| {
+                let item = err.into_inner();
+                PyTypeError::new_err(format!(
+                    "`text` iterable must yield only strings (index {idx} got {})",
+                    unexpected_item_description(&item)
+                ))
+            })?;
+            lines.push(s.unbind());
+        }
+        if lines.is_empty() {
+            return if multi {
+                Ok(PyList::empty(py).unbind().into())
+            } else {
+                Ok(py.None())
+            };
+        }
+
+        let mut slices: Vec<&str> = Vec::with_capacity(lines.len());
+        let mut total_bytes: usize = 0;
+        for line in &lines {
+            let slice = line.bind(py).to_str()?;
+            total_bytes = total_bytes.saturating_add(slice.len());
+            slices.push(slice);
+        }
+        total_bytes = total_bytes.saturating_add(lines.len().saturating_sub(1));
+        let release_gil = should_release_gil_for_parse(total_bytes);
+        let docs = load_yaml_documents_slices(py, &slices, multi, release_gil)?;
         return docs_to_python(py, docs, multi, handlers);
     }
 
     Err(PyTypeError::new_err(
-        "`text` must be a string or a sequence of strings",
+        "`text` must be a string or an iterable of strings",
     ))
 }
 
@@ -433,8 +517,12 @@ fn _dbg_yaml(py: Python<'_>, text: PyObject) -> Result<()> {
         let mut lines: Vec<Py<PyString>> = Vec::with_capacity(len);
         for idx in 0..len {
             let item = seq.get_item(idx)?;
-            let s: Bound<'_, PyString> = item.downcast_into().map_err(|_| {
-                PyTypeError::new_err("`text` sequence must contain only strings without None")
+            let s: Bound<'_, PyString> = item.downcast_into().map_err(|err| {
+                let item = err.into_inner();
+                PyTypeError::new_err(format!(
+                    "`text` sequence must contain only strings (index {idx} got {})",
+                    unexpected_item_description(&item)
+                ))
             })?;
             lines.push(s.unbind());
         }
@@ -511,6 +599,77 @@ fn load_yaml_documents<'py, 'input>(
     loader.early_parse(false);
     let mut load = || parser.load(&mut loader, multi);
     let result = if should_release_gil_for_parse(text.len()) {
+        py.allow_threads(load)
+    } else {
+        load()
+    };
+    result.map_err(|err| PyValueError::new_err(format!("YAML parse error: {err}")))?;
+    Ok(loader.into_documents())
+}
+
+struct JoinedStrSlicesIter<'a> {
+    slices: &'a [&'a str],
+    next_slice: usize,
+    current: std::str::Chars<'a>,
+    has_current: bool,
+}
+
+impl<'a> JoinedStrSlicesIter<'a> {
+    fn new(slices: &'a [&'a str]) -> Self {
+        let mut iter = Self {
+            slices,
+            next_slice: 0,
+            current: "".chars(),
+            has_current: false,
+        };
+        iter.advance_slice();
+        iter
+    }
+
+    fn advance_slice(&mut self) {
+        if self.next_slice >= self.slices.len() {
+            self.has_current = false;
+            self.current = "".chars();
+            return;
+        }
+        let slice = self.slices[self.next_slice];
+        self.next_slice += 1;
+        self.current = slice.chars();
+        self.has_current = true;
+    }
+}
+
+impl<'a> Iterator for JoinedStrSlicesIter<'a> {
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if !self.has_current {
+            return None;
+        }
+        if let Some(ch) = self.current.next() {
+            return Some(ch);
+        }
+        if self.next_slice >= self.slices.len() {
+            self.has_current = false;
+            return None;
+        }
+        self.advance_slice();
+        Some('\n')
+    }
+}
+
+fn load_yaml_documents_slices<'py, 'input>(
+    py: Python<'py>,
+    slices: &'input [&'input str],
+    multi: bool,
+    release_gil: bool,
+) -> Result<Vec<Yaml<'input>>> {
+    let iter = JoinedStrSlicesIter::new(slices);
+    let mut parser = Parser::new_from_iter(iter);
+    let mut loader = saphyr::YamlLoader::default();
+    loader.early_parse(false);
+    let mut load = || parser.load(&mut loader, multi);
+    let result = if release_gil {
         py.allow_threads(load)
     } else {
         load()

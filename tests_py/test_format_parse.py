@@ -254,7 +254,8 @@ def test_parse_yaml_ignores_later_document_errors_when_not_multi():
 
 def test_parse_yaml_errors_on_none_inputs():
     with pytest.raises(
-        TypeError, match="`text` must be a string or a sequence of strings"
+        TypeError,
+        match="`text` must be a string or an iterable of strings",
     ):
         yaml12.parse_yaml(None)
 
@@ -276,10 +277,65 @@ def test_parse_yaml_rejects_file_like_objects(tmp_path: Path):
     with (
         path.open("r", encoding="utf-8") as fh,
         pytest.raises(
-            TypeError, match="`text` must be a string or a sequence of strings"
+            TypeError,
+            match="`text` must be a string or an iterable of strings",
         ),
     ):
         yaml12.parse_yaml(fh)
+
+
+def test_parse_yaml_accepts_iterable_lines():
+    it = iter(["foo: 1", "bar: true"])
+    assert yaml12.parse_yaml(it) == {"foo": 1, "bar": True}
+
+
+def test_parse_yaml_accepts_generator_lines_with_prefix_stripping():
+    import itertools
+
+    prefix = "#| "
+    lines = [
+        "#| foo: 1",
+        "#| bar: true",
+        "not yaml anymore",
+        "#| ignored: 99",
+    ]
+    gen = (
+        line.removeprefix(prefix)
+        for line in itertools.takewhile(lambda s: s.startswith(prefix), lines)
+    )
+    assert yaml12.parse_yaml(gen) == {"foo": 1, "bar": True}
+
+
+def test_parse_yaml_iterable_rejects_non_strings():
+    with pytest.raises(TypeError, match="`text` iterable must yield only strings"):
+        yaml12.parse_yaml(iter([1]))  # type: ignore[list-item]
+
+
+def test_parse_yaml_sequence_error_message_snapshots_index_and_value():
+    with pytest.raises(TypeError) as excinfo:
+        yaml12.parse_yaml(["foo: 1", None])  # type: ignore[list-item]
+    assert (
+        str(excinfo.value)
+        == "`text` sequence must contain only strings (index 1 got NoneType: None)"
+    )
+
+
+def test_parse_yaml_iterable_error_message_snapshots_index_and_value():
+    with pytest.raises(TypeError) as excinfo:
+        yaml12.parse_yaml(iter([1]))  # type: ignore[list-item]
+    assert (
+        str(excinfo.value)
+        == "`text` iterable must yield only strings (index 0 got int: 1)"
+    )
+
+
+def test_dbg_yaml_sequence_error_message_snapshots_index_and_value():
+    with pytest.raises(TypeError) as excinfo:
+        yaml12._dbg_yaml([None])  # type: ignore[list-item]
+    assert (
+        str(excinfo.value)
+        == "`text` sequence must contain only strings (index 0 got NoneType: None)"
+    )
 
 
 class _ChunkReader:
