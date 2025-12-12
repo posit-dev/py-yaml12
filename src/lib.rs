@@ -1,4 +1,5 @@
 use pyo3::exceptions::{PyAttributeError, PyIOError, PyTypeError, PyValueError};
+use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::sync::GILOnceCell;
 use pyo3::types::{
@@ -25,6 +26,9 @@ static YAML_CLASS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
 static ABC_TYPES: GILOnceCell<(Py<PyAny>, Py<PyAny>)> = GILOnceCell::new();
 static BUILTIN_TYPES: GILOnceCell<BuiltinTypes> = GILOnceCell::new();
 const READ_CHUNK_SIZE: usize = 8192;
+const GIL_RELEASE_MIN_PARSE_LEN: usize = 2048;
+const GIL_RELEASE_MIN_EMIT_DOCS: usize = 4;
+const GIL_RELEASE_MIN_EMIT_COLLECTION_LEN: usize = 32;
 
 fn pathlike_to_pathbuf(obj: &Bound<'_, PyAny>) -> Result<Option<PathBuf>> {
     match obj.extract::<PathBuf>() {
@@ -205,7 +209,7 @@ fn parse_yaml(
                 Ok(py.None())
             };
         }
-        let docs = load_yaml_documents(src, multi)?;
+        let docs = load_yaml_documents(py, src, multi)?;
         return docs_to_python(py, docs, multi, handlers);
     }
 
@@ -268,17 +272,20 @@ fn read_yaml(
     let bound = path.bind(py);
     if let Ok(s) = bound.downcast::<PyString>() {
         let path_str = s.to_str()?;
-        let contents = fs::read_to_string(path_str)
+        let contents = py
+            .allow_threads(|| fs::read_to_string(path_str))
             .map_err(|err| PyIOError::new_err(format!("failed to read `{path_str}`: {err}")))?;
-        let docs = load_yaml_documents(&contents, multi)?;
+        let docs = load_yaml_documents(py, &contents, multi)?;
         return docs_to_python(py, docs, multi, handlers);
     }
 
     if let Some(path_buf) = pathlike_to_pathbuf(bound)? {
-        let contents = fs::read_to_string(&path_buf).map_err(|err| {
-            PyIOError::new_err(format!("failed to read `{}`: {err}", path_buf.display()))
-        })?;
-        let docs = load_yaml_documents(&contents, multi)?;
+        let contents = py
+            .allow_threads(|| fs::read_to_string(&path_buf))
+            .map_err(|err| {
+                PyIOError::new_err(format!("failed to read `{}`: {err}", path_buf.display()))
+            })?;
+        let docs = load_yaml_documents(py, &contents, multi)?;
         return docs_to_python(py, docs, multi, handlers);
     }
 
@@ -321,7 +328,7 @@ fn read_yaml(
 fn format_yaml(py: Python<'_>, value: PyObject, multi: bool) -> Result<PyObject> {
     let bound = value.bind(py);
     let yaml = py_to_yaml(py, bound, false)?;
-    let mut output = format_yaml_impl(&yaml, multi)?;
+    let mut output = format_yaml_impl(py, &yaml, multi)?;
     if multi {
         output.push_str("...\n");
         return PyString::new(py, output.as_str()).into_py_any(py);
@@ -353,34 +360,35 @@ fn format_yaml(py: Python<'_>, value: PyObject, multi: bool) -> Result<PyObject>
 fn write_yaml(py: Python<'_>, value: PyObject, path: Option<PyObject>, multi: bool) -> Result<()> {
     let bound = value.bind(py);
     let yaml = py_to_yaml(py, bound, false)?;
-    let mut output = format_yaml_impl(&yaml, multi)?;
+    let mut output = format_yaml_impl(py, &yaml, multi)?;
     if multi {
         output.push_str("...\n");
     } else {
         output.push_str("\n...\n");
     }
     let Some(path_obj) = path else {
-        write_to_stdout(&output)?;
+        write_to_stdout(py, &output)?;
         return Ok(());
     };
 
     let bound_path = path_obj.bind(py);
     if bound_path.is_none() {
-        write_to_stdout(&output)?;
+        write_to_stdout(py, &output)?;
         return Ok(());
     }
 
     if let Ok(path_str) = bound_path.downcast::<PyString>() {
         let p = path_str.to_str()?;
-        fs::write(p, &output)
+        py.allow_threads(|| fs::write(p, &output))
             .map_err(|err| PyIOError::new_err(format!("failed to write `{p}`: {err}")))?;
         return Ok(());
     }
 
     if let Some(path_buf) = pathlike_to_pathbuf(bound_path)? {
-        fs::write(&path_buf, &output).map_err(|err| {
-            PyIOError::new_err(format!("failed to write `{}`: {err}", path_buf.display()))
-        })?;
+        py.allow_threads(|| fs::write(&path_buf, &output))
+            .map_err(|err| {
+                PyIOError::new_err(format!("failed to write `{}`: {err}", path_buf.display()))
+            })?;
         return Ok(());
     }
 
@@ -412,7 +420,7 @@ fn _dbg_yaml(py: Python<'_>, text: PyObject) -> Result<()> {
         if src.is_empty() {
             return Ok(());
         }
-        let docs = load_yaml_documents(src, true)?;
+        let docs = load_yaml_documents(py, src, true)?;
         println!("{docs:#?}");
         return Ok(());
     }
@@ -474,13 +482,40 @@ fn docs_to_python(
     }
 }
 
-fn load_yaml_documents<'input>(text: &'input str, multi: bool) -> Result<Vec<Yaml<'input>>> {
+fn should_release_gil_for_parse(text_len: usize) -> bool {
+    text_len >= GIL_RELEASE_MIN_PARSE_LEN
+}
+
+fn should_release_gil_for_emit(value: &Yaml<'static>, multi: bool) -> bool {
+    if multi {
+        matches!(
+            value,
+            Yaml::Sequence(seq) if seq.len() >= GIL_RELEASE_MIN_EMIT_DOCS
+        )
+    } else {
+        match value {
+            Yaml::Sequence(seq) => seq.len() >= GIL_RELEASE_MIN_EMIT_COLLECTION_LEN,
+            Yaml::Mapping(map) => map.len() >= GIL_RELEASE_MIN_EMIT_COLLECTION_LEN,
+            _ => false,
+        }
+    }
+}
+
+fn load_yaml_documents<'py, 'input>(
+    py: Python<'py>,
+    text: &'input str,
+    multi: bool,
+) -> Result<Vec<Yaml<'input>>> {
     let mut parser = Parser::new_from_str(text);
     let mut loader = saphyr::YamlLoader::default();
     loader.early_parse(false);
-    parser
-        .load(&mut loader, multi)
-        .map_err(|err| PyValueError::new_err(format!("YAML parse error: {err}")))?;
+    let mut load = || parser.load(&mut loader, multi);
+    let result = if should_release_gil_for_parse(text.len()) {
+        py.allow_threads(load)
+    } else {
+        load()
+    };
+    result.map_err(|err| PyValueError::new_err(format!("YAML parse error: {err}")))?;
     Ok(loader.into_documents())
 }
 
@@ -975,7 +1010,10 @@ impl<'py, 'a> Iterator for JoinedLinesIter<'py, 'a> {
     }
 }
 
-fn emit_yaml_documents(docs: &[Yaml<'static>], multi: bool) -> Result<String> {
+fn emit_yaml_documents(
+    docs: &[Yaml<'static>],
+    multi: bool,
+) -> std::result::Result<String, saphyr::EmitError> {
     if docs.is_empty() {
         return Ok(String::new());
     }
@@ -983,25 +1021,28 @@ fn emit_yaml_documents(docs: &[Yaml<'static>], multi: bool) -> Result<String> {
     let mut emitter = YamlEmitter::new(&mut output);
     emitter.multiline_strings(true);
     if multi {
-        emitter
-            .dump_docs(docs)
-            .map_err(|err| PyValueError::new_err(err.to_string()))?;
+        emitter.dump_docs(docs)?;
     } else {
-        emitter
-            .dump(&docs[0])
-            .map_err(|err| PyValueError::new_err(err.to_string()))?;
+        emitter.dump(&docs[0])?;
     }
     Ok(output)
 }
 
-fn format_yaml_impl(value: &Yaml<'static>, multi: bool) -> Result<String> {
+fn format_yaml_impl(py: Python<'_>, value: &Yaml<'static>, multi: bool) -> Result<String> {
+    let emit = |docs: &[Yaml<'static>], multi: bool| {
+        if should_release_gil_for_emit(value, multi) {
+            py.allow_threads(|| emit_yaml_documents(docs, multi))
+        } else {
+            emit_yaml_documents(docs, multi)
+        }
+    };
     if multi {
         match value {
             Yaml::Sequence(seq) => {
                 if seq.is_empty() {
                     return Ok(String::from("---\n"));
                 }
-                emit_yaml_documents(seq, true)
+                emit(seq, true).map_err(|err| PyValueError::new_err(err.to_string()))
             }
             Yaml::Value(Scalar::Null) => Ok(String::from("---\n")),
             _ => Err(PyTypeError::new_err(
@@ -1009,7 +1050,8 @@ fn format_yaml_impl(value: &Yaml<'static>, multi: bool) -> Result<String> {
             )),
         }
     } else {
-        emit_yaml_documents(std::slice::from_ref(value), false)
+        emit(std::slice::from_ref(value), false)
+            .map_err(|err| PyValueError::new_err(err.to_string()))
     }
 }
 
@@ -1448,5 +1490,33 @@ mod tests {
                 other => panic!("input `{input}` expected null scalar, got {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn gil_release_thresholds_are_consistent() {
+        assert!(!should_release_gil_for_parse(GIL_RELEASE_MIN_PARSE_LEN - 1));
+        assert!(should_release_gil_for_parse(GIL_RELEASE_MIN_PARSE_LEN));
+
+        let small_multi = Yaml::Sequence(vec![
+            Yaml::Value(Scalar::Null);
+            GIL_RELEASE_MIN_EMIT_DOCS - 1
+        ]);
+        let big_multi = Yaml::Sequence(vec![Yaml::Value(Scalar::Null); GIL_RELEASE_MIN_EMIT_DOCS]);
+        assert!(!should_release_gil_for_emit(&small_multi, true));
+        assert!(should_release_gil_for_emit(&big_multi, true));
+
+        let mut big_map = Mapping::with_capacity(GIL_RELEASE_MIN_EMIT_COLLECTION_LEN);
+        for idx in 0..GIL_RELEASE_MIN_EMIT_COLLECTION_LEN {
+            big_map.insert(
+                Yaml::Value(Scalar::Integer(idx as i64)),
+                Yaml::Value(Scalar::Null),
+            );
+        }
+        let small_map = Yaml::Mapping(Mapping::with_capacity(
+            GIL_RELEASE_MIN_EMIT_COLLECTION_LEN - 1,
+        ));
+        let big_map_yaml = Yaml::Mapping(big_map);
+        assert!(!should_release_gil_for_emit(&small_map, false));
+        assert!(should_release_gil_for_emit(&big_map_yaml, false));
     }
 }
