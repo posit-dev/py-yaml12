@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import math
 import textwrap
+import types
 from collections.abc import Sequence
 from typing import Callable
 from pathlib import Path
@@ -217,7 +218,7 @@ def test_parse_yaml_sequences_and_mappings():
 
     assert yaml12.parse_yaml(simple_seq) == ["a", "b", "c"]
     assert yaml12.parse_yaml(mapping_text) == {"foo": 1, "bar": "baz"}
-    assert yaml12.parse_yaml(["foo: 1", "bar: 2"]) == {"foo": 1, "bar": 2}
+    assert yaml12.parse_yaml(["foo: 1\n", "bar: 2"]) == {"foo": 1, "bar": 2}
 
     with pytest.raises(TypeError, match="must contain only strings"):
         yaml12.parse_yaml(["foo: 1", None])
@@ -254,7 +255,8 @@ def test_parse_yaml_ignores_later_document_errors_when_not_multi():
 
 def test_parse_yaml_errors_on_none_inputs():
     with pytest.raises(
-        TypeError, match="`text` must be a string or a sequence of strings"
+        TypeError,
+        match="`text` must be a string or an iterable of strings",
     ):
         yaml12.parse_yaml(None)
 
@@ -270,17 +272,152 @@ def test_parse_yaml_errors_on_none_inputs():
     assert yaml12.parse_yaml([]) is None
 
 
+def test_parse_yaml_rejects_mapping_inputs():
+    with pytest.raises(
+        TypeError,
+        match="`text` must be a string or an iterable of strings",
+    ):
+        yaml12.parse_yaml({})
+
+    with pytest.raises(
+        TypeError,
+        match="`text` must be a string or an iterable of strings",
+    ):
+        yaml12.parse_yaml(types.MappingProxyType({}))
+
+
 def test_parse_yaml_rejects_file_like_objects(tmp_path: Path):
     path = tmp_path / "parse-no-conn.yaml"
     path.write_text("foo: 1\n", encoding="utf-8")
-    with (
-        path.open("r", encoding="utf-8") as fh,
-        pytest.raises(
-            TypeError, match="`text` must be a string or a sequence of strings"
-        ),
-    ):
-        yaml12.parse_yaml(fh)
+    with path.open("r", encoding="utf-8") as fh:
+        assert yaml12.parse_yaml(fh) == {"foo": 1}
 
+
+def test_parse_yaml_accepts_iterable_with_read_method_and_transform():
+    class TransformingLineSource:
+        def __init__(self, lines: list[str]):
+            self._lines = lines
+
+        def read(self, size: int = -1) -> str:  # noqa: ARG002
+            raise RuntimeError("parse_yaml should not call read()")
+
+        def __iter__(self):
+            prefix = "#| "
+            for line in self._lines:
+                if not line.startswith(prefix):
+                    break
+                yield line.removeprefix(prefix)
+
+    src = TransformingLineSource(
+        [
+            "#| foo: 1\n",
+            "#| bar: true\n",
+            "not yaml anymore\n",
+            "#| ignored: 99\n",
+        ]
+    )
+    assert yaml12.parse_yaml(src) == {"foo": 1, "bar": True}
+
+
+def test_parse_yaml_accepts_iterable_lines():
+    it = iter(["foo: 1\n", "bar: true"])
+    assert yaml12.parse_yaml(it) == {"foo": 1, "bar": True}
+
+
+def test_parse_yaml_accepts_generator_lines_with_prefix_stripping():
+    import itertools
+
+    prefix = "#| "
+    lines = [
+        "#| foo: 1\n",
+        "#| bar: true\n",
+        "not yaml anymore",
+        "#| ignored: 99",
+    ]
+    gen = (
+        line.removeprefix(prefix)
+        for line in itertools.takewhile(lambda s: s.startswith(prefix), lines)
+    )
+    assert yaml12.parse_yaml(gen) == {"foo": 1, "bar": True}
+
+
+def test_parse_yaml_iterable_rejects_non_strings():
+    with pytest.raises(TypeError, match="`text` iterable must yield only strings"):
+        yaml12.parse_yaml(iter([1]))  # type: ignore[list-item]
+
+
+def test_parse_yaml_sequence_error_message_snapshots_index_and_value():
+    with pytest.raises(TypeError) as excinfo:
+        yaml12.parse_yaml(["foo: 1", None])  # type: ignore[list-item]
+    assert (
+        str(excinfo.value)
+        == "`text` sequence must contain only strings (index 1 got NoneType: None)"
+    )
+
+
+def test_parse_yaml_iterable_error_message_snapshots_index_and_value():
+    with pytest.raises(TypeError) as excinfo:
+        yaml12.parse_yaml(iter([1]))  # type: ignore[list-item]
+    assert (
+        str(excinfo.value)
+        == "`text` iterable must yield only strings (index 0 got int: 1)"
+    )
+
+
+def test_dbg_yaml_sequence_error_message_snapshots_index_and_value():
+    with pytest.raises(TypeError) as excinfo:
+        yaml12._dbg_yaml([None])  # type: ignore[list-item]
+    assert (
+        str(excinfo.value)
+        == "`text` sequence must contain only strings (index 0 got NoneType: None)"
+    )
+
+
+class _ChunkReader:
+    def __init__(self, path: Path, chunk_size: int = 7):
+        self.f = path.open("r", encoding="utf-8")
+        self.chunk_size = chunk_size
+
+    def read(self, size: int = -1) -> str:
+        chunk_size = self.chunk_size if size < 0 else size
+        return self.f.read(chunk_size)
+
+    def close(self):
+        self.f.close()
+
+
+class _ChunkBytesReader:
+    def __init__(self, path: Path, chunk_size: int = 5):
+        self.f = path.open("rb")
+        self.chunk_size = chunk_size
+
+    def read(self, size: int = -1) -> bytes:
+        chunk_size = self.chunk_size if size < 0 else size
+        return self.f.read(chunk_size)
+
+    def close(self):
+        self.f.close()
+
+
+class _ErroringReader:
+    def read(self, size: int = -1):  # noqa: ARG002
+        raise RuntimeError("boom stream")
+
+
+class _BadTypeReader:
+    def read(self, size: int = -1):  # noqa: ARG002
+        return 123  # not bytes/str
+
+
+class _ErroringReaderAfterFirst:
+    def __init__(self):
+        self.calls = 0
+
+    def read(self, size: int = -1):  # noqa: ARG002
+        self.calls += 1
+        if self.calls == 1:
+            return "---\nfoo: 1\n"
+        raise RuntimeError("boom later")
 
 def test_parse_numeric_sequences_keep_types():
     yaml = "[1, 2.5, 0x10, .inf, null]"
