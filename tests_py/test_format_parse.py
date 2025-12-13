@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import math
 import textwrap
+import types
 from collections.abc import Sequence
 from typing import Callable
 from pathlib import Path
@@ -269,6 +270,20 @@ def test_parse_yaml_errors_on_none_inputs():
         yaml12.parse_yaml(["foo: 1", None])
 
     assert yaml12.parse_yaml([]) is None
+
+
+def test_parse_yaml_rejects_mapping_inputs():
+    with pytest.raises(
+        TypeError,
+        match="`text` must be a string or an iterable of strings",
+    ):
+        yaml12.parse_yaml({})
+
+    with pytest.raises(
+        TypeError,
+        match="`text` must be a string or an iterable of strings",
+    ):
+        yaml12.parse_yaml(types.MappingProxyType({}))
 
 
 def test_parse_yaml_rejects_file_like_objects(tmp_path: Path):

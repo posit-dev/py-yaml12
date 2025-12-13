@@ -264,11 +264,6 @@ fn parse_yaml(
         return docs_to_python(py, docs, multi, handlers);
     }
 
-    if bound.is_instance_of::<PyDict>() {
-        return Err(PyTypeError::new_err(
-            "`text` must be a string or an iterable of strings",
-        ));
-    }
     let (mapping_cls, _) = abc_types(py)?;
     if bound.is_instance(mapping_cls.bind(py))? {
         return Err(PyTypeError::new_err(
