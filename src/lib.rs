@@ -663,19 +663,6 @@ fn load_yaml_documents_slices<'py, 'input>(
     Ok(loader.into_documents())
 }
 
-fn load_yaml_documents_iter<'input, I>(iter: I, multi: bool) -> Result<Vec<Yaml<'input>>>
-where
-    I: Iterator<Item = char> + 'input,
-{
-    let mut parser = Parser::new_from_iter(iter);
-    let mut loader = saphyr::YamlLoader::default();
-    loader.early_parse(false);
-    parser
-        .load(&mut loader, multi)
-        .map_err(|err| PyValueError::new_err(format!("YAML parse error: {err}")))?;
-    Ok(loader.into_documents())
-}
-
 fn resolve_representation(node: &mut Yaml) {
     let (value, style, tag) = match mem::replace(node, Yaml::BadValue) {
         Yaml::Representation(value, style, tag) => (value, style, tag),
