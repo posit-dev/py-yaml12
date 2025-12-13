@@ -197,7 +197,11 @@ fn split_tag_name(name: &str) -> Option<(&str, &str)> {
 ///     handlers (dict[str, Callable] | None): Optional tag handlers for values and keys; matching handlers receive the parsed value.
 ///
 /// Returns:
-///     object: Parsed value(s); tagged nodes become `Yaml` when no handler matches or when used for unhashable mapping keys.
+///     object: Parsed value(s): YAML mappings become `dict`, sequences become `list`, and scalars
+///         resolve using the YAML 1.2 core schema to `bool`/`int`/`float`/`None`/`str`. Unhashable
+///         mapping keys (for example `list`/`dict`) are wrapped in the lightweight `Yaml` dataclass
+///         to keep them hashable. Tagged nodes without a matching handler are also wrapped in `Yaml`
+///         so the tag can be preserved.
 ///
 /// Raises:
 ///     ValueError: On YAML parse errors or invalid tag strings.
@@ -318,7 +322,11 @@ fn parse_yaml(
 ///     handlers (dict[str, Callable] | None): Optional tag handlers for values and keys; matching handlers receive the parsed value.
 ///
 /// Returns:
-///     object: Parsed value(s); tagged nodes become `Yaml` when no handler matches or when used for unhashable mapping keys.
+///     object: Parsed value(s): YAML mappings become `dict`, sequences become `list`, and scalars
+///         resolve using the YAML 1.2 core schema to `bool`/`int`/`float`/`None`/`str`. Unhashable
+///         mapping keys (for example `list`/`dict`) are wrapped in the lightweight `Yaml` dataclass
+///         to keep them hashable. Tagged nodes without a matching handler are also wrapped in `Yaml`
+///         so the tag can be preserved.
 ///
 /// Raises:
 ///     IOError: When the file cannot be read.
