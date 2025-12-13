@@ -22,8 +22,9 @@ write_yaml(value, path=None, multi=False)
 - multi: When `True`, treat `value` as a list of YAML documents and
   encode a stream separated by `---` and terminated with `...`.
 - path: Destination path (`str` or `os.PathLike`) or writable object
-  with `.write()`. When `None`, write to stdout. Writers are tried with
-  text first, then retried as bytes if text writes fail.
+  with `.write()`. When `None`, write to stdout. Writers must accept
+  `str`; for binary sinks open the file in text mode or wrap the stream
+  with `io.TextIOWrapper(...)`.
 
 ## Returns
 

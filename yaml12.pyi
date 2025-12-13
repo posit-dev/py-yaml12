@@ -5,10 +5,9 @@ import sys
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from os import PathLike
-from typing import Any, BinaryIO, Literal, TextIO, overload
+from typing import Any, Literal, Protocol, TypeVar, overload
 
 __all__: list[str]
-
 
 @dataclass(frozen=True)
 class Yaml:
@@ -53,43 +52,47 @@ if sys.version_info >= (3, 14):
         multi: Literal[True],
         handlers: Mapping[str, Callable[[Any], Any]] | None = None,
     ) -> list[Any]: ...
+
+    def _dbg_yaml(text: str | Iterable[str] | io.Reader[str] | io.Reader[bytes]) -> None: ...
+
+    def write_yaml(
+        value: Any,
+        path: str | PathLike[str] | io.Writer[str] | None = None,
+        multi: bool = False,
+    ) -> None: ...
 else:
+    _T_co = TypeVar("_T_co", covariant=True)
+
+    class _Reader(Protocol[_T_co]):
+        def read(self, size: int = ..., /) -> _T_co: ...
+
+    class _Writer(Protocol):
+        def write(self, data: str, /) -> int: ...
+
     @overload
     def read_yaml(
-        path: str | PathLike[str] | TextIO | BinaryIO,
+        path: str | PathLike[str] | _Reader[str] | _Reader[bytes],
         multi: Literal[False] = False,
         handlers: Mapping[str, Callable[[Any], Any]] | None = None,
     ) -> Any: ...
 
     @overload
     def read_yaml(
-        path: str | PathLike[str] | TextIO | BinaryIO,
+        path: str | PathLike[str] | _Reader[str] | _Reader[bytes],
         multi: Literal[True],
         handlers: Mapping[str, Callable[[Any], Any]] | None = None,
     ) -> list[Any]: ...
 
+    def _dbg_yaml(text: str | Iterable[str] | _Reader[str] | _Reader[bytes]) -> None: ...
+
+    def write_yaml(
+        value: Any,
+        path: str | PathLike[str] | _Writer | None = None,
+        multi: bool = False,
+    ) -> None: ...
+
 
 def format_yaml(value: Any, multi: bool = False) -> str: ...
-
-if sys.version_info >= (3, 14):
-    def write_yaml(
-        value: Any,
-        path: str | PathLike[str] | io.Writer[str] | io.Writer[bytes] | None = None,
-        multi: bool = False,
-    ) -> None: ...
-else:
-    def write_yaml(
-        value: Any,
-        path: str | PathLike[str] | TextIO | BinaryIO | None = None,
-        multi: bool = False,
-    ) -> None: ...
-
-if sys.version_info >= (3, 14):
-    def _dbg_yaml(
-        text: str | Iterable[str] | io.Reader[str] | io.Reader[bytes],
-    ) -> None: ...
-else:
-    def _dbg_yaml(text: str | Iterable[str] | TextIO | BinaryIO) -> None: ...
 
 
 __version__: str
