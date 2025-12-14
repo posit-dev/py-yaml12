@@ -5,7 +5,6 @@ from pathlib import Path
 import io
 import contextlib
 import sys
-
 import pytest
 
 import yaml12
@@ -368,36 +367,69 @@ def test_write_yaml_accepts_text_writer(tmp_path: Path):
     )
 
 
-def test_write_yaml_accepts_bytes_writer(tmp_path: Path):
+def test_write_yaml_rejects_bytes_writer(tmp_path: Path):
     path = tmp_path / "writer-bytes.yaml"
     handle = path.open("wb")
-    value = {"foo": 1}
-    yaml12.write_yaml(value, handle)
-    handle.close()
-    assert (
-        path.read_text(encoding="utf-8") == f"---\n{yaml12.format_yaml(value)}\n...\n"
-    )
+    try:
+        with pytest.raises(TypeError, match="writer must accept str"):
+            yaml12.write_yaml({"foo": 1}, handle)
+    finally:
+        handle.close()
 
 
-def test_write_yaml_bytes_writer_after_str_failure():
-    class BytesOnly:
-        def __init__(self):
-            self.data = bytearray()
-            self.calls = 0
+def test_write_yaml_text_writer_handles_partial_writes():
+    class PartialTextWriter:
+        def __init__(self, chunk: int = 1):
+            self.chunk = chunk
+            self.parts: list[str] = []
 
-        def write(self, payload):
-            self.calls += 1
-            if isinstance(payload, str):
-                raise TypeError("need bytes")
-            assert isinstance(payload, (bytes, bytearray))
-            self.data.extend(payload)
+        def write(self, payload: str) -> int:
+            n = min(self.chunk, len(payload))
+            self.parts.append(payload[:n])
+            return n
 
-    sink = BytesOnly()
-    value = {"foo": 1}
+    value = {"snowman": "☃"}
+    sink = PartialTextWriter(chunk=1)
     yaml12.write_yaml(value, sink)
-    assert sink.calls == 2  # first str write fails, second bytes write succeeds
-    expected = f"---\n{yaml12.format_yaml(value)}\n...\n".encode()
-    assert bytes(sink.data) == expected
+
+    expected = f"---\n{yaml12.format_yaml(value)}\n...\n"
+    assert "".join(sink.parts) == expected
+
+
+def test_write_yaml_raises_when_writer_returns_zero():
+    class ZeroWriter:
+        def write(self, payload: str) -> int:  # noqa: ARG002
+            return 0
+
+    with pytest.raises(OSError, match="returned 0"):
+        yaml12.write_yaml({"alpha": 1}, ZeroWriter())
+
+
+def test_write_yaml_rejects_buffered_writer():
+    sink = io.BytesIO()
+    with pytest.raises(TypeError, match="writer must accept str"):
+        yaml12.write_yaml({"alpha": 1}, sink)
+
+
+def test_write_yaml_prefers_text_for_textiobase():
+    class Sink(io.TextIOBase):
+        def __init__(self):
+            self.parts: list[str] = []
+
+        def writable(self) -> bool:
+            return True
+
+        def write(self, s: str) -> int:  # type: ignore[override]
+            assert isinstance(s, str)
+            # Simulate a partial write contract.
+            n = max(1, len(s) // 2)
+            self.parts.append(s[:n])
+            return n
+
+    sink = Sink()
+    yaml12.write_yaml({"alpha": 1}, sink)
+    expected = f"---\n{yaml12.format_yaml({'alpha': 1})}\n...\n"
+    assert "".join(sink.parts) == expected
 
 
 def test_write_yaml_accepts_pathlike(tmp_path: Path):

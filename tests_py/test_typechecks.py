@@ -49,6 +49,33 @@ yaml12.read_yaml(p, multi=True)
 
 yaml12.read_yaml(io.StringIO("foo: 1\\n"))
 yaml12.read_yaml(io.BytesIO(b"foo: 1\\n"))
+
+class CustomTextReader:
+    def __init__(self, text: str):
+        self._text = text
+
+    def read(self, size: int = -1) -> str:  # noqa: ARG002
+        return self._text
+
+class CustomBytesReader:
+    def __init__(self, payload: bytes):
+        self._payload = payload
+
+    def read(self, size: int = -1) -> bytes:  # noqa: ARG002
+        return self._payload
+
+yaml12.read_yaml(CustomTextReader("foo: 1\\n"))
+yaml12.read_yaml(CustomBytesReader(b"foo: 1\\n"))
+
+class CustomTextWriter:
+    def __init__(self):
+        self.parts: list[str] = []
+
+    def write(self, data: str) -> int:
+        self.parts.append(data)
+        return len(data)
+
+yaml12.write_yaml({"a": 1}, path=CustomTextWriter())
 """,
             encoding="utf-8",
         )
@@ -93,7 +120,7 @@ yaml12.write_yaml({"a": 1}, path=123)
         assert (pkg_dir / "py.typed").exists()
         assert (pkg_dir / "__init__.pyi").exists()
 
-        # pyright positive and a python-version override (exercise 3.14 branch)
+        # pyright positive and a python-version override
         subprocess.run(
             [
                 sys.executable,

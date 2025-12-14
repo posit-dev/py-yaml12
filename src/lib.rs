@@ -438,7 +438,7 @@ fn format_yaml(py: Python<'_>, value: PyObject, multi: bool) -> Result<PyObject>
 ///
 /// Args:
 ///     value (object): Python value or Yaml to serialize; for `multi` the value must be a sequence of documents.
-///     path (str | os.PathLike | file-like | None): Destination path or object with `.write()`; when None the YAML is written to stdout.
+///     path (str | os.PathLike | text file-like | None): Destination path or object with `.write(str)`; when None the YAML is written to stdout.
 ///     multi (bool): Emit a multi-document stream when true; otherwise a single document.
 ///
 /// Returns:
@@ -490,14 +490,18 @@ fn write_yaml(py: Python<'_>, value: PyObject, path: Option<PyObject>, multi: bo
 
     if let Ok(write) = bound_path.getattr("write") {
         let writer = write.unbind();
-        let try_str = writer.bind(py).call1((output.as_str(),));
-        if let Err(err) = try_str {
-            if err.is_instance_of::<PyTypeError>(py) {
-                let bytes = PyBytes::new(py, output.as_bytes());
-                writer.bind(py).call1((bytes,))?;
-            } else {
-                return Err(err);
+        match write_all_text(py, &writer, output.as_str()) {
+            Ok(()) => {}
+            Err(WriteError::Call(err)) if err.is_instance_of::<PyTypeError>(py) => {
+                let original = err.to_string();
+                let augmented = PyTypeError::new_err(format!(
+                    "writer must accept str; open the file in text mode (e.g. `open(path, 'w', encoding='utf-8')`) \
+or wrap a binary stream with `io.TextIOWrapper(...)`. (writer.write(str) raised TypeError: {original})"
+                ));
+                augmented.set_cause(py, Some(err));
+                return Err(augmented);
             }
+            Err(err) => return Err(err.into_pyerr()),
         }
         return Ok(());
     }
@@ -1005,6 +1009,73 @@ fn format_yaml_impl(py: Python<'_>, value: &Yaml<'static>, multi: bool) -> Resul
     }
 }
 
+fn slice_from_char_offset(s: &str, chars: usize) -> &str {
+    if chars == 0 {
+        return s;
+    }
+    match s.char_indices().nth(chars) {
+        Some((idx, _)) => &s[idx..],
+        None => "",
+    }
+}
+
+enum WriteError {
+    Call(PyErr),
+    Contract(PyErr),
+}
+
+impl WriteError {
+    fn into_pyerr(self) -> PyErr {
+        match self {
+            WriteError::Call(err) | WriteError::Contract(err) => err,
+        }
+    }
+}
+
+enum WriteStep {
+    Done,
+    Partial(usize),
+}
+
+fn write_text_step(
+    py: Python<'_>,
+    writer: &Py<PyAny>,
+    content: &str,
+) -> std::result::Result<WriteStep, WriteError> {
+    let result = writer.call1(py, (content,)).map_err(WriteError::Call)?;
+    if result.is_none(py) {
+        return Ok(WriteStep::Done);
+    }
+    let written: isize = result.extract(py).map_err(|_| {
+        WriteError::Contract(PyTypeError::new_err(
+            "writer.write() must return int or None to support partial writes",
+        ))
+    })?;
+    if written <= 0 {
+        return Err(WriteError::Contract(PyIOError::new_err(
+            "writer.write() returned 0; output may be truncated",
+        )));
+    }
+    Ok(WriteStep::Partial(written as usize))
+}
+
+fn write_all_text(
+    py: Python<'_>,
+    writer: &Py<PyAny>,
+    content: &str,
+) -> std::result::Result<(), WriteError> {
+    let mut remaining = content;
+    while !remaining.is_empty() {
+        match write_text_step(py, writer, remaining)? {
+            WriteStep::Done => return Ok(()),
+            WriteStep::Partial(written) => {
+                remaining = slice_from_char_offset(remaining, written);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn write_to_stdout(py: Python<'_>, content: &str) -> Result<()> {
     let ptr = unsafe { ffi::PySys_GetObject(c"stdout".as_ptr()) };
     if ptr.is_null() {
@@ -1016,10 +1087,16 @@ fn write_to_stdout(py: Python<'_>, content: &str) -> Result<()> {
         return write_to_stdout_fallback(py, content);
     }
 
-    if stdout.call_method1("write", (content,)).is_err() {
-        // If sys.stdout is malformed, fall back to the real stdout and
-        // suppress the Python-level exception.
-        return write_to_stdout_fallback(py, content);
+    match stdout.getattr("write") {
+        Ok(write) => {
+            let writer = write.unbind();
+            if write_all_text(py, &writer, content).is_err() {
+                return write_to_stdout_fallback(py, content);
+            }
+        }
+        Err(_) => {
+            return write_to_stdout_fallback(py, content);
+        }
     }
 
     // Best-effort flush; never raise for malformed stdout.
