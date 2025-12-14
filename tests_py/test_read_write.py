@@ -405,22 +405,10 @@ def test_write_yaml_raises_when_writer_returns_zero():
         yaml12.write_yaml({"alpha": 1}, ZeroWriter())
 
 
-def test_write_yaml_rejects_bufferedio_without_calling_write():
-    class Sink(io.BufferedIOBase):
-        def __init__(self):
-            self.calls = 0
-
-        def writable(self) -> bool:
-            return True
-
-        def write(self, b):  # type: ignore[override]  # noqa: ARG002
-            self.calls += 1
-            return 0
-
-    sink = Sink()
+def test_write_yaml_rejects_buffered_writer():
+    sink = io.BytesIO()
     with pytest.raises(TypeError, match="writer must accept str"):
         yaml12.write_yaml({"alpha": 1}, sink)
-    assert sink.calls == 0
 
 
 def test_write_yaml_prefers_text_for_textiobase():

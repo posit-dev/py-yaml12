@@ -24,7 +24,6 @@ type BuiltinTypes = (Py<PyAny>, Py<PyAny>, Py<PyAny>, Py<PyAny>);
 static YAML_CLASS: GILOnceCell<Py<PyAny>> = GILOnceCell::new();
 static ABC_TYPES: GILOnceCell<(Py<PyAny>, Py<PyAny>)> = GILOnceCell::new();
 static BUILTIN_TYPES: GILOnceCell<BuiltinTypes> = GILOnceCell::new();
-static IO_TYPES: GILOnceCell<(Py<PyAny>, Py<PyAny>, Py<PyAny>)> = GILOnceCell::new();
 const GIL_RELEASE_MIN_PARSE_LEN: usize = 2048;
 const GIL_RELEASE_MIN_EMIT_DOCS: usize = 4;
 const GIL_RELEASE_MIN_EMIT_COLLECTION_LEN: usize = 32;
@@ -491,28 +490,18 @@ fn write_yaml(py: Python<'_>, value: PyObject, path: Option<PyObject>, multi: bo
 
     if let Ok(write) = bound_path.getattr("write") {
         let writer = write.unbind();
-        let kind = classify_writer(py, bound_path)?;
-        let bytes_writer_error = || {
-            PyTypeError::new_err(
-                "writer must accept str; open the file in text mode (e.g. `open(path, 'w', encoding='utf-8')`) or wrap a binary stream with `io.TextIOWrapper(...)`",
-            )
-        };
-        match kind {
-            WriterKind::Text => match write_all_text(py, &writer, output.as_str()) {
-                Ok(()) => {}
-                Err(WriteError::Call(err)) if err.is_instance_of::<PyTypeError>(py) => {
-                    return Err(bytes_writer_error());
-                }
-                Err(err) => return Err(err.into_pyerr()),
-            },
-            WriterKind::Bytes => return Err(bytes_writer_error()),
-            WriterKind::Unknown => match write_all_text(py, &writer, output.as_str()) {
-                Ok(()) => {}
-                Err(WriteError::Call(err)) if err.is_instance_of::<PyTypeError>(py) => {
-                    return Err(bytes_writer_error());
-                }
-                Err(err) => return Err(err.into_pyerr()),
-            },
+        match write_all_text(py, &writer, output.as_str()) {
+            Ok(()) => {}
+            Err(WriteError::Call(err)) if err.is_instance_of::<PyTypeError>(py) => {
+                let original = err.to_string();
+                let augmented = PyTypeError::new_err(format!(
+                    "writer must accept str; open the file in text mode (e.g. `open(path, 'w', encoding='utf-8')`) \
+or wrap a binary stream with `io.TextIOWrapper(...)`. (writer.write(str) raised TypeError: {original})"
+                ));
+                augmented.set_cause(py, Some(err));
+                return Err(augmented);
+            }
+            Err(err) => return Err(err.into_pyerr()),
         }
         return Ok(());
     }
@@ -935,34 +924,6 @@ fn abc_types(py: Python<'_>) -> Result<&(Py<PyAny>, Py<PyAny>)> {
             abc.getattr("Sequence")?.unbind(),
         ))
     })
-}
-
-fn io_types(py: Python<'_>) -> Result<&(Py<PyAny>, Py<PyAny>, Py<PyAny>)> {
-    IO_TYPES.get_or_try_init(py, || -> Result<(Py<PyAny>, Py<PyAny>, Py<PyAny>)> {
-        let io = PyModule::import(py, "io")?;
-        Ok((
-            io.getattr("TextIOBase")?.unbind(),
-            io.getattr("BufferedIOBase")?.unbind(),
-            io.getattr("RawIOBase")?.unbind(),
-        ))
-    })
-}
-
-enum WriterKind {
-    Text,
-    Bytes,
-    Unknown,
-}
-
-fn classify_writer(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<WriterKind> {
-    let (text_base, buffered_base, raw_base) = io_types(py)?;
-    if obj.is_instance(text_base.bind(py))? {
-        return Ok(WriterKind::Text);
-    }
-    if obj.is_instance(buffered_base.bind(py))? || obj.is_instance(raw_base.bind(py))? {
-        return Ok(WriterKind::Bytes);
-    }
-    Ok(WriterKind::Unknown)
 }
 
 #[cfg(test)]
