@@ -26,7 +26,9 @@ jobs:
         with:
           args: --release --out dist --interpreter python --no-default-features
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          manylinux: auto
+          # The manylinux images do not ship PyPy interpreters, so building inside Docker
+          # would try to use the container's `python` (often Python 2.x) and fail.
+          manylinux: off
       - name: Test wheel
         shell: bash
         run: |
