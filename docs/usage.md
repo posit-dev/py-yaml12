@@ -257,6 +257,8 @@ Python result (`parse_yaml()` with defaults):
   spaces.
 - All JSON is valid YAML.
 - Sequences stay Python lists; there is no vector "simplification."
+- Mapping (dict) key order is preserved on load and emit (in the order keys appear in
+  the YAML input, and in the insertion order of Python mappings you format).
 - Block scalars (`|`, `>`) always produce strings.
 - Booleans are only `true`/`false`; `null` maps to `None`.
 - Numbers can be signed, scientific, hex (`0x`), octal (`0o`), `.inf`,

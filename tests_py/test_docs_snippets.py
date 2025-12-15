@@ -180,7 +180,7 @@ def test_tag_directives_and_uri_tags():
         """
     )
     parsed = yaml12.parse_yaml(text_global)
-    assert parsed["item"].tag == "gizmo"
+    assert parsed["item"].tag == "!gizmo"
 
 
 def test_timestamp_and_binary_tags_with_handlers():
@@ -204,8 +204,8 @@ def test_timestamp_and_binary_tags_with_handlers():
     converted = yaml12.parse_yaml(
         yaml_text,
         handlers={
-            "tag:yaml.org,2002:timestamp": ts_handler,
-            "tag:yaml.org,2002:binary": binary_handler,
+            "!!timestamp": ts_handler,
+            "!!binary": binary_handler,
         },
     )
     assert converted[0] == "2025-01-01Z"

@@ -41,7 +41,11 @@ def parse_yaml(
 
 
 @overload
-def parse_yaml(text: str | Iterable[str], multi: Literal[True], handlers: None = None) -> list[_YamlOutput]: ...
+def parse_yaml(
+    text: str | Iterable[str],
+    multi: Literal[True],
+    handlers: None = None,
+) -> list[_YamlOutput]: ...
 
 
 @overload
@@ -76,6 +80,9 @@ def read_yaml(
 
 
 def _dbg_yaml(text: str | Iterable[str] | _Readable) -> None: ...
+
+
+def _normalize_tag(tag: str) -> str: ...
 
 
 def write_yaml(

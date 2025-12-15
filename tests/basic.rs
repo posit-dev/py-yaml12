@@ -2,15 +2,76 @@ use pyo3::types::{PyDict, PyList, PyModule};
 use pyo3::{prelude::*, PyResult};
 use saphyr::Yaml;
 use saphyr_parser::Parser;
+use std::ffi::CString;
+use std::sync::Mutex;
+
+static PY_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn init_module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
     let module = PyModule::new(py, "yaml12_test")?;
     yaml12::yaml12(py, &module)?;
+
+    let builtins = PyModule::import(py, "builtins")?;
+    let yaml_cls = match builtins.getattr("_yaml12_test_yaml_cls") {
+        Ok(cls) if !cls.is_none() => cls,
+        _ => {
+    let helpers = CString::new(
+        r#"
+from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+
+def _freeze(obj):
+    if isinstance(obj, Yaml):
+        return ("yaml", obj.tag, _freeze(obj.value))
+    if isinstance(obj, Mapping):
+        return ("map", tuple((_freeze(k), _freeze(v)) for k, v in obj.items()))
+    if isinstance(obj, Sequence) and not isinstance(obj, (str, bytes, bytearray)):
+        return ("seq", tuple(_freeze(x) for x in obj))
+    try:
+        hash(obj)
+        return obj
+    except TypeError:
+        return ("unhashable", id(obj))
+
+@dataclass(frozen=True)
+class Yaml:
+    value: object
+    tag: str | None = None
+
+    def __post_init__(self):
+        frozen = ("tagged", self.tag, _freeze(self.value))
+        object.__setattr__(self, "_frozen", frozen)
+        object.__setattr__(self, "_hash", hash(frozen))
+
+    def __hash__(self):
+        return self._hash
+
+    def __eq__(self, other):
+        if not isinstance(other, Yaml):
+            return NotImplemented
+        return self._frozen == other._frozen
+        "#,
+    )
+    .expect("helpers must not contain null bytes");
+
+    let locals = PyDict::new(py);
+    py.run(helpers.as_c_str(), Some(&locals), Some(&locals))?;
+    let yaml_cls = locals
+        .get_item("Yaml")?
+        .expect("Yaml class should be defined");
+            builtins.setattr("_yaml12_test_yaml_cls", &yaml_cls)?;
+            yaml_cls
+        }
+    };
+
+    module.call_method1("_set_yaml_class", (yaml_cls.clone(),))?;
+    module.setattr("Yaml", yaml_cls)?;
     Ok(module)
 }
 
 #[test]
 fn parse_simple_mapping() -> PyResult<()> {
+    let _guard = PY_TEST_LOCK.lock().expect("python test lock poisoned");
     pyo3::prepare_freethreaded_python();
     Python::with_gil(|py| {
         let module = init_module(py)?;
@@ -33,6 +94,7 @@ fn parse_simple_mapping() -> PyResult<()> {
 
 #[test]
 fn roundtrip_multi_documents() -> PyResult<()> {
+    let _guard = PY_TEST_LOCK.lock().expect("python test lock poisoned");
     pyo3::prepare_freethreaded_python();
     Python::with_gil(|py| {
         let module = init_module(py)?;
@@ -61,6 +123,7 @@ fn roundtrip_multi_documents() -> PyResult<()> {
 
 #[test]
 fn preserves_non_core_tags() -> PyResult<()> {
+    let _guard = PY_TEST_LOCK.lock().expect("python test lock poisoned");
     pyo3::prepare_freethreaded_python();
     Python::with_gil(|py| {
         let module = init_module(py)?;

@@ -6,6 +6,9 @@ and mapping keys; scalar core tags (`!!str`, `!!int`, `!!bool`,
 `!!float`, `!!null`, `!!seq`, `!!map`) are dropped on emit because they
 add no extra information.
 
+Mappings are emitted in insertion order (the order you inserted keys into the Python
+mapping).
+
 ## Usage
 
 ```python

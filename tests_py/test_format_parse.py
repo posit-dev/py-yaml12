@@ -126,12 +126,32 @@ def test_format_yaml_single_doc_has_no_header_or_trailing_newline():
     assert yaml12.parse_yaml(encoded) == {"foo": 1}
 
 
+def test_format_yaml_preserves_float_types_for_ambiguous_scalars():
+    assert yaml12.parse_yaml(yaml12.format_yaml(1.0)) == 1.0
+    assert isinstance(yaml12.parse_yaml(yaml12.format_yaml(1.0)), float)
+
+    neg_zero = yaml12.parse_yaml(yaml12.format_yaml(-0.0))
+    assert isinstance(neg_zero, float)
+    assert math.copysign(1.0, neg_zero) == -1.0
+
+
+def test_format_yaml_preserves_inf_and_nan_scalars():
+    out = yaml12.parse_yaml(yaml12.format_yaml(math.inf))
+    assert isinstance(out, float) and math.isinf(out) and out > 0
+
+    out = yaml12.parse_yaml(yaml12.format_yaml(-math.inf))
+    assert isinstance(out, float) and math.isinf(out) and out < 0
+
+    out = yaml12.parse_yaml(yaml12.format_yaml(math.nan))
+    assert isinstance(out, float) and math.isnan(out)
+
+
 def test_format_yaml_validates_tagged_inputs():
     with pytest.raises(ValueError, match="tag must not be empty"):
         yaml12.format_yaml(Yaml("value", ""))
 
     with pytest.raises(ValueError, match="invalid YAML tag"):
-        yaml12.format_yaml(Yaml("value", "abc"))
+        yaml12.format_yaml(Yaml("value", "abc def"))
 
     with pytest.raises(TypeError):
         yaml12.format_yaml(Yaml("value", 123))  # type: ignore[arg-type]
@@ -665,11 +685,29 @@ def test_format_and_parse_roundtrip_non_specific_tag():
     assert reparsed.value == "value"
 
 
+def test_format_and_parse_roundtrip_verbatim_tag_uris():
+    tagged = Yaml("value", "gizmo")
+    encoded = yaml12.format_yaml(tagged)
+    assert tagged.tag == "!gizmo"
+    assert encoded.startswith("!gizmo ")
+    assert yaml12.parse_yaml(encoded) == tagged
+
+    core_binary = Yaml("UiBpcyBBd2Vzb21l", "tag:yaml.org,2002:binary")
+    encoded = yaml12.format_yaml(core_binary)
+    assert encoded.startswith("!!binary ")
+    assert yaml12.parse_yaml(encoded) == core_binary
+
+    resolved = Yaml("value", "tag:example.com,2024:widgets/gizmo")
+    encoded = yaml12.format_yaml(resolved)
+    assert encoded.startswith("!<tag:example.com,2024:widgets/gizmo> ")
+    assert yaml12.parse_yaml(encoded) == resolved
+
+
 def test_parse_yaml_canonical_string_tag_forms():
     cases = [
         ("!!str true", "true"),
         ("!str true", Yaml("true", "!str")),
-        ("!<str> true", Yaml("true", "str")),
+        ("!<str> true", Yaml("true", "!str")),
         ("!<!str> true", Yaml("true", "!str")),
         ("!<!!str> true", Yaml("true", "!!str")),
         ("!<tag:yaml.org,2002:str> true", "true"),
