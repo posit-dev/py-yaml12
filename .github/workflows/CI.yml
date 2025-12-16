@@ -233,7 +233,8 @@ jobs:
       - uses: mymindstorm/setup-emsdk@v12
         with:
           version: ${{ env.EMSCRIPTEN_VERSION }}
-          actions-cache-folder: emsdk-cache
+          # Avoid `actions-cache-folder`: the action uses a shared cache key and can fail
+          # with "Unable to reserve cache…" when multiple workflow runs race to save it.
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
