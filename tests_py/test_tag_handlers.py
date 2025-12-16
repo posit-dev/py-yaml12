@@ -202,6 +202,35 @@ map: !m {a: 1, b: 2}
     }
 
 
+def test_handlers_match_verbatim_and_expanded_tag_uris():
+    text = """\
+%TAG !e! tag:example.com,2024:widgets/
+---
+verbatim: !<gizmo> foo
+expanded: !e!gizmo bar
+"""
+
+    handlers = {
+        "gizmo": lambda value: f"verbatim:{value}",
+        "tag:example.com,2024:widgets/gizmo": lambda value: f"expanded:{value}",
+    }
+
+    assert yaml12.parse_yaml(text, handlers=handlers) == {
+        "verbatim": "verbatim:foo",
+        "expanded": "expanded:bar",
+    }
+
+
+def test_handlers_accept_core_shorthand_keys():
+    assert (
+        yaml12.parse_yaml(
+            "!!timestamp 2025-01-01",
+            handlers={"!!timestamp": lambda value: f"ts:{value}"},
+        )
+        == "ts:2025-01-01"
+    )
+
+
 def test_tagged_scalar_preserves_string_value():
     out = yaml12.parse_yaml("!foo 001")
 

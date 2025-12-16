@@ -3,7 +3,7 @@ requires = ["maturin>=1.9,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "yaml12"
+name = "py-yaml12"
 description = "A modern YAML 1.2 parser and emitter for Python, written in Rust."
 readme = "README.md"
 license = { file = "LICENSE" }

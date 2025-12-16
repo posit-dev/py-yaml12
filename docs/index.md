@@ -14,8 +14,13 @@ For almost every use case, `yaml12` lets you work with plain builtin Python type
 
 ## Installation
 
-The project targets Python 3.10+ and builds via `maturin` (Rust
-toolchain required). From the repository root:
+Install from PyPI:
+
+```bash
+pip install py-yaml12
+```
+
+For development, install from the repository root (requires Python 3.10+ and a Rust toolchain):
 
 ```bash
 python -m venv .venv
@@ -133,7 +138,7 @@ assert parsed == {
 
 Tags, custom handlers, and non-string mapping keys work without extra
 setup when you need them. Nodes that can’t be represented as plain
-Python types are wrapped in `Yaml` (a small frozen dataclass). You’ll
+Python types are wrapped in `Yaml` (a small immutable wrapper class). You’ll
 only see `Yaml` when:
 
 - A tagged node has no matching handler; inspect `.value` and `.tag`.

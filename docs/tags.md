@@ -12,7 +12,7 @@ always starts with `!`, and it appears before the node’s value; it is
 not part of the scalar text itself.
 
 `yaml12` preserves tags by wrapping nodes in a `Yaml` object. A `Yaml`
-is a small frozen dataclass that carries the parsed `value` (a regular
+is a small immutable wrapper class that carries the parsed `value` (a regular
 Python type) and the `tag` string. Here is an example of parsing a tagged scalar:
 
 ```python
@@ -158,7 +158,7 @@ true: true
 
 When a key can’t be represented directly as a plain Python dict key,
 `yaml12` wraps it in `Yaml`. That preserves the original key and makes
-it hashable (with equality defined by structure), so it can safely live
+it hashable (with equality defined by structure, including mapping key order), so it can safely live
 in a Python `dict`:
 
 ```python
@@ -277,7 +277,7 @@ rmd_lines = [
     "---",
     "# Body that is not YAML",
 ]
-frontmatter = parse_yaml(rmd_lines)
+frontmatter = parse_yaml("\n".join(rmd_lines))
 assert frontmatter == {"title": "Front matter only", "params": {"answer": 42}}
 ```
 
@@ -417,7 +417,9 @@ assert parse_yaml(text)["item"].tag == "tag:example.com,2024:widgets/gizmo"
 
 ### Tag URIs
 
-To bypass handle resolution, use `!<...>` with a valid URI-like string:
+To specify a verbatim tag, use `!<...>` with a valid URI-like string. For
+simple tags like `gizmo`, `yaml12` normalizes `!<gizmo>` to the local tag
+form `!gizmo`:
 
 ```python
 parsed = parse_yaml("""
@@ -425,7 +427,7 @@ parsed = parse_yaml("""
 ---
 item: !<gizmo> foo
 """)
-assert parsed["item"].tag == "gizmo"
+assert parsed["item"].tag == "!gizmo"
 ```
 
 ### Core schema tags
@@ -472,8 +474,8 @@ def binary_handler(value):
 converted = parse_yaml(
     yaml_text,
     handlers={
-        "tag:yaml.org,2002:timestamp": ts_handler,
-        "tag:yaml.org,2002:binary": binary_handler,
+        "!!timestamp": ts_handler,
+        "!!binary": binary_handler,
     },
 )
 assert isinstance(converted[0], datetime) and isinstance(converted[2], (bytes, bytearray))

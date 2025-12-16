@@ -21,7 +21,7 @@ YAML and parses the same way.
 The package ships prebuilt wheels for Python 3.10+ on common platforms. Install from PyPI:
 
 ```bash
-pip install yaml12
+pip install py-yaml12
 ```
 
 ## Development install

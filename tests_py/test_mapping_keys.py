@@ -78,12 +78,16 @@ def test_mapping_key_with_tagged_mapping_proxies_inner_value():
     assert parsed[yaml12.Yaml(key.value, "!foo")] == "baz"
 
 
-def test_mapping_key_hashes_by_structure():
+def test_mapping_key_hashes_by_insertion_order():
     k1 = yaml12.Yaml({"b": 2, "a": 1})
     k2 = yaml12.Yaml({"a": 1, "b": 2})
 
-    assert k1 == k2
-    assert hash(k1) == hash(k2)
+    assert k1 != k2
+
+    mapping = {k1: "value"}
+    assert mapping[k1] == "value"
+    with pytest.raises(KeyError):
+        _ = mapping[k2]
 
 
 def test_mapping_key_with_tagged_value_hashes_and_compares():

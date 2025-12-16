@@ -13,8 +13,8 @@ read_yaml(path, multi=False, handlers=None)
 
 ## Arguments
 
-- text: `str` or sequence of `str`; sequence items are joined with
-  `"\n"`. When empty, returns `None` (or `[]` when `multi=True`).
+- text: `str` or iterable of `str`; chunks are concatenated exactly as provided (no implicit
+  separators are inserted). When empty, returns `None` (or `[]` when `multi=True`).
 - path: `str`, `os.PathLike`, or readable object yielding `str` or
   UTF-8 `bytes`.
 - multi: When `True`, parse the whole stream and return a list of
@@ -30,6 +30,9 @@ When `multi=False`, the first document or `None` for empty input. When
 handler (including informative core tags such as `!!timestamp` or
 `!!binary`) become `Yaml` objects. Unhashable mapping keys are wrapped
 in `Yaml` so they remain hashable.
+
+Mapping key order is preserved in the returned `dict` (in the same order keys appear in
+the YAML input).
 
 ## Examples
 
@@ -60,6 +63,6 @@ lines = [
     "---",
     "# Body that is not YAML",
 ]
-parse_yaml(lines)
+parse_yaml("\n".join(lines))
 # {'title': 'Front matter only', 'params': {'answer': 42}}
 ```
