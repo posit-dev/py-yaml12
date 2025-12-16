@@ -11,7 +11,7 @@ use pyo3::IntoPyObjectExt;
 use saphyr::{Mapping, Scalar, Tag, Yaml, YamlEmitter};
 use saphyr_parser::{Parser, ScalarStyle};
 use std::borrow::Cow;
-use std::cell::UnsafeCell;
+use std::cell::{RefCell, UnsafeCell};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
@@ -59,10 +59,9 @@ fn pathlike_to_pathbuf(obj: &Bound<'_, PyAny>) -> Result<Option<PathBuf>> {
     }
 }
 
-type HandlerMap = HashMap<String, Py<PyAny>>;
-
 struct HandlerRegistry {
-    map: HandlerMap,
+    dict: Py<PyDict>,
+    cache: RefCell<HashMap<String, Option<Py<PyAny>>>>,
 }
 
 impl HandlerRegistry {
@@ -83,31 +82,97 @@ impl HandlerRegistry {
             return Ok(None);
         }
 
-        let mut handlers_map: HandlerMap = HashMap::with_capacity(dict.len());
-        for (key_obj, value_obj) in dict.iter() {
-            let key_str = key_obj.cast::<PyString>().map_err(|_| {
-                PyTypeError::new_err("handler keys must be strings or subclasses of str")
-            })?;
-            let key_text = key_str.to_str()?;
-            let key = normalize_handler_tag_string(key_text)?;
-            if !value_obj.is_callable() {
-                return Err(PyTypeError::new_err(format!(
-                    "handler `{}` must be callable",
-                    key_text
-                )));
-            }
-            handlers_map.insert(key, value_obj.unbind());
-        }
-
-        Ok(Some(Self { map: handlers_map }))
+        Ok(Some(Self {
+            dict: dict.clone().unbind(),
+            cache: RefCell::new(HashMap::new()),
+        }))
     }
 
-    fn get_for_tag(&self, tag: &str) -> Option<&Py<PyAny>> {
-        self.map.get(tag)
+    fn get_for_tag(&self, py: Python<'_>, tag: &str) -> Result<Option<Py<PyAny>>> {
+        if let Some(cached) = self.cache.borrow().get(tag) {
+            return Ok(cached.as_ref().map(|handler| handler.clone_ref(py)));
+        }
+
+        let dict = self.dict.bind(py);
+        let resolved = self.lookup_handler(dict, tag)?;
+        let result = resolved.as_ref().map(|handler| handler.clone_ref(py));
+        self.cache.borrow_mut().insert(tag.to_owned(), resolved);
+        Ok(result)
     }
 
     fn apply(&self, py: Python<'_>, handler: &Py<PyAny>, arg: Py<PyAny>) -> Result<Py<PyAny>> {
         handler.call1(py, (arg,))
+    }
+
+    fn lookup_handler(&self, dict: &Bound<'_, PyDict>, tag: &str) -> Result<Option<Py<PyAny>>> {
+        if let Some(handler) = dict.get_item(tag)? {
+            Self::validate_callable(tag, &handler)?;
+            return Ok(Some(handler.unbind()));
+        }
+
+        if let Some(inner) = tag
+            .strip_prefix("!<")
+            .and_then(|rest| rest.strip_suffix('>'))
+            .filter(|inner| !inner.is_empty())
+        {
+            let normalized = normalize_simple_tag_name_for_api(inner);
+            if normalized.as_ref() != tag {
+                if let Some(handler) = dict.get_item(normalized.as_ref())? {
+                    Self::validate_callable(normalized.as_ref(), &handler)?;
+                    return Ok(Some(handler.unbind()));
+                }
+            }
+        }
+
+        if let Some(local) = tag.strip_prefix('!') {
+            if is_simple_local_tag_name(local) {
+                if let Some(handler) = dict.get_item(local)? {
+                    Self::validate_callable(local, &handler)?;
+                    return Ok(Some(handler.unbind()));
+                }
+
+                let wrapped_local = format!("!<{local}>");
+                if let Some(handler) = dict.get_item(wrapped_local.as_str())? {
+                    Self::validate_callable(wrapped_local.as_str(), &handler)?;
+                    return Ok(Some(handler.unbind()));
+                }
+
+                let wrapped_tag = format!("!<{tag}>");
+                if let Some(handler) = dict.get_item(wrapped_tag.as_str())? {
+                    Self::validate_callable(wrapped_tag.as_str(), &handler)?;
+                    return Ok(Some(handler.unbind()));
+                }
+            }
+        } else {
+            let wrapped_tag = format!("!<{tag}>");
+            if let Some(handler) = dict.get_item(wrapped_tag.as_str())? {
+                Self::validate_callable(wrapped_tag.as_str(), &handler)?;
+                return Ok(Some(handler.unbind()));
+            }
+
+            const CORE_PREFIX: &str = "tag:yaml.org,2002:";
+            if let Some(core_suffix) = tag.strip_prefix(CORE_PREFIX) {
+                if !core_suffix.is_empty() {
+                    let shorthand = format!("!!{core_suffix}");
+                    if let Some(handler) = dict.get_item(shorthand.as_str())? {
+                        Self::validate_callable(shorthand.as_str(), &handler)?;
+                        return Ok(Some(handler.unbind()));
+                    }
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn validate_callable(key: &str, handler: &Bound<'_, PyAny>) -> Result<()> {
+        if handler.is_callable() {
+            Ok(())
+        } else {
+            Err(PyTypeError::new_err(format!(
+                "handler `{key}` must be callable"
+            )))
+        }
     }
 }
 
@@ -137,49 +202,6 @@ fn handler_registry_from_arg(
             }
         }
     }
-}
-
-fn normalize_handler_tag_string(name: &str) -> Result<String> {
-    let trimmed = name.trim();
-    if trimmed.is_empty() {
-        return Err(PyTypeError::new_err(
-            "handler keys must be non-empty strings",
-        ));
-    }
-    if trimmed != name {
-        return Err(PyTypeError::new_err(
-            "handler keys must not contain leading/trailing whitespace",
-        ));
-    }
-    if trimmed.chars().any(|c| c.is_whitespace()) {
-        return Err(PyTypeError::new_err(
-            "handler keys must not contain whitespace",
-        ));
-    }
-
-    // Accept shorthand forms and normalize to the tag strings produced by `render_tag`.
-    if let Some(rest) = trimmed.strip_prefix("!!") {
-        if rest.is_empty() {
-            return Err(PyTypeError::new_err(
-                "`handlers` keys must be valid YAML tag strings",
-            ));
-        }
-        return Ok(format!("tag:yaml.org,2002:{rest}"));
-    }
-
-    let normalized = if let Some(uri) = trimmed.strip_prefix("!<").and_then(|s| s.strip_suffix('>'))
-    {
-        if uri.is_empty() {
-            return Err(PyTypeError::new_err(
-                "`handlers` keys must be valid YAML tag strings",
-            ));
-        }
-        uri
-    } else {
-        trimmed
-    };
-
-    Ok(normalize_simple_tag_name_for_api(normalized).into_owned())
 }
 
 fn is_simple_local_tag_name(name: &str) -> bool {
@@ -1164,11 +1186,11 @@ fn convert_tagged(
     let public_tag = normalize_simple_tag_name_for_api(rendered);
 
     if let Some(registry) = handlers {
-        if let Some(handler) = registry.get_for_tag(public_tag.as_ref()) {
+        if let Some(handler) = registry.get_for_tag(py, public_tag.as_ref())? {
             // Convert inner node in value mode to avoid pre-wrapping keys; the tag logic below
             // handles hashability and tag preservation.
             let value = yaml_to_py(py, node, false, handlers)?;
-            let handled = registry.apply(py, handler, value)?;
+            let handled = registry.apply(py, &handler, value)?;
             if is_key && handler_result_needs_wrap(py, handled.bind(py))? {
                 return make_yaml_node(py, handled, None);
             }
