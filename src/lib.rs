@@ -327,6 +327,7 @@ fn freeze_for_yaml_hash(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<Py<PyA
     }
 }
 
+/// Tagged node or hashable wrapper for unhashable mapping keys.
 #[pyclass(name = "Yaml", module = "yaml12")]
 struct YamlNode {
     value: Py<PyAny>,
