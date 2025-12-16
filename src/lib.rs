@@ -693,9 +693,7 @@ fn read_yaml(
 
         if let Ok(bytes) = read_result.cast::<PyBytes>() {
             let text = std::str::from_utf8(bytes.as_bytes()).map_err(|err| {
-                PyValueError::new_err(format!(
-                    "connection.read() returned non-UTF-8 bytes ({err})"
-                ))
+                PyValueError::new_err(format!("reader.read() returned non-UTF-8 bytes ({err})"))
             })?;
             let docs = load_yaml_documents(py, text, multi)?;
             return docs_to_python(py, docs, multi, handlers);
@@ -887,9 +885,7 @@ fn _dbg_yaml(py: Python<'_>, text: Py<PyAny>) -> Result<()> {
 
         if let Ok(bytes) = read_result.cast::<PyBytes>() {
             let text = std::str::from_utf8(bytes.as_bytes()).map_err(|err| {
-                PyValueError::new_err(format!(
-                    "connection.read() returned non-UTF-8 bytes ({err})"
-                ))
+                PyValueError::new_err(format!("reader.read() returned non-UTF-8 bytes ({err})"))
             })?;
             let docs = load_yaml_documents(py, text, true)?;
             println!("{docs:#?}");
@@ -1486,6 +1482,12 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
         return Ok(Yaml::Value(Scalar::String(Cow::Owned(
             s.to_str()?.to_owned(),
         ))));
+    }
+
+    if obj.is_instance_of::<PyBytes>() || obj.is_instance_of::<PyByteArray>() {
+        return Err(PyTypeError::new_err(
+            "bytes and bytearray are not supported for YAML conversion; use str for binary data",
+        ));
     }
 
     if obj.is_instance_of::<PyDict>() {

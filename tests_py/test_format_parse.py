@@ -157,6 +157,17 @@ def test_format_yaml_validates_tagged_inputs():
         yaml12.format_yaml(Yaml("value", 123))  # type: ignore[arg-type]
 
 
+def test_format_yaml_rejects_bytes_like_values():
+    with pytest.raises(TypeError, match=r"bytes"):
+        yaml12.format_yaml(b"hello")
+
+    with pytest.raises(TypeError, match=r"bytearray|bytes"):
+        yaml12.format_yaml(bytearray(b"hello"))
+
+    with pytest.raises(TypeError, match=r"bytes"):
+        yaml12.format_yaml({"payload": b"hello"})
+
+
 def test_format_yaml_multi_requires_sequence_argument():
     with pytest.raises(TypeError):
         yaml12.format_yaml(1, multi=True)
