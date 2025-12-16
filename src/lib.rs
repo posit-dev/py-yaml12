@@ -11,6 +11,7 @@ use pyo3::IntoPyObjectExt;
 use saphyr::{Mapping, Scalar, Tag, Yaml, YamlEmitter};
 use saphyr_parser::{Parser, ScalarStyle};
 use std::borrow::Cow;
+use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
@@ -729,7 +730,8 @@ fn read_yaml(
 ///     True
 fn format_yaml(py: Python<'_>, value: Py<PyAny>, multi: bool) -> Result<Py<PyAny>> {
     let bound = value.bind(py);
-    let yaml = py_to_yaml(py, bound, false)?;
+    let arena = PyStringArena::new();
+    let yaml = py_to_yaml(py, bound, false, &arena)?;
     let mut output = format_yaml_impl(py, &yaml, multi)?;
     if multi {
         output.push_str("...\n");
@@ -766,7 +768,8 @@ fn write_yaml(
     multi: bool,
 ) -> Result<()> {
     let bound = value.bind(py);
-    let yaml = py_to_yaml(py, bound, false)?;
+    let arena = PyStringArena::new();
+    let yaml = py_to_yaml(py, bound, false, &arena)?;
     let mut output = format_yaml_impl(py, &yaml, multi)?;
     if multi {
         output.push_str("...\n");
@@ -926,7 +929,7 @@ fn should_release_gil_for_parse(text_len: usize) -> bool {
     text_len >= GIL_RELEASE_MIN_PARSE_LEN
 }
 
-fn should_release_gil_for_emit(value: &Yaml<'static>, multi: bool) -> bool {
+fn should_release_gil_for_emit(value: &Yaml<'_>, multi: bool) -> bool {
     if multi {
         matches!(
             value,
@@ -1258,7 +1261,7 @@ fn render_tag(tag: &Tag) -> String {
 }
 
 fn emit_yaml_documents(
-    docs: &[Yaml<'static>],
+    docs: &[Yaml<'_>],
     multi: bool,
 ) -> std::result::Result<String, saphyr::EmitError> {
     if docs.is_empty() {
@@ -1275,8 +1278,8 @@ fn emit_yaml_documents(
     Ok(output)
 }
 
-fn format_yaml_impl(py: Python<'_>, value: &Yaml<'static>, multi: bool) -> Result<String> {
-    let emit = |docs: &[Yaml<'static>], multi: bool| {
+fn format_yaml_impl<'a>(py: Python<'_>, value: &Yaml<'a>, multi: bool) -> Result<String> {
+    let emit = |docs: &[Yaml<'a>], multi: bool| {
         if should_release_gil_for_emit(value, multi) {
             py.detach(|| emit_yaml_documents(docs, multi))
         } else {
@@ -1434,8 +1437,42 @@ fn float_to_yaml_scalar(f: f64) -> Yaml<'static> {
     Yaml::Representation(Cow::Owned(rendered), ScalarStyle::Plain, None)
 }
 
+struct PyStringArena {
+    strings: UnsafeCell<Vec<Py<PyString>>>,
+}
+
+impl PyStringArena {
+    fn new() -> Self {
+        Self {
+            strings: UnsafeCell::new(Vec::new()),
+        }
+    }
+
+    fn borrow<'a>(&'a self, value: &Bound<'_, PyString>) -> Result<&'a str> {
+        let text = value.to_str()?;
+
+        // Keep a strong reference to the Python string so its cached UTF-8 buffer remains alive
+        // while we emit YAML without the GIL.
+        let owned = value.as_unbound().clone_ref(value.py());
+        unsafe { (&mut *self.strings.get()).push(owned) };
+
+        // SAFETY: `PyString::to_str()` returns an `&str` tied to the lifetime of the GIL token.
+        // For YAML emitting we may temporarily release the GIL (`py.detach`), but we never call
+        // back into the Python C-API while detached. Unicode objects are immutable, and the C-API
+        // contract for UTF-8 access guarantees the returned buffer remains valid until the
+        // Unicode object is deallocated. By storing a strong reference in `self`, we guarantee
+        // the object outlives the returned `&str`, so it is safe to extend the lifetime to `'a`.
+        Ok(unsafe { std::mem::transmute::<&str, &'a str>(text) })
+    }
+}
+
 #[allow(clippy::only_used_in_recursion)]
-fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Yaml<'static>> {
+fn py_to_yaml<'a>(
+    py: Python<'_>,
+    obj: &Bound<'_, PyAny>,
+    is_key: bool,
+    arena: &'a PyStringArena,
+) -> Result<Yaml<'a>> {
     if obj.is_none() {
         return Ok(Yaml::Value(Scalar::Null));
     }
@@ -1444,11 +1481,11 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
         let value_obj = obj.getattr("value")?;
         let tag_obj = obj.getattr("tag")?;
         if tag_obj.is_none() {
-            return py_to_yaml(py, &value_obj, is_key);
+            return py_to_yaml(py, &value_obj, is_key, arena);
         }
         let tag_str = tag_obj.cast::<PyString>()?.to_str()?;
         let tag = parse_tag_string(tag_str)?;
-        let inner = py_to_yaml(py, &value_obj, is_key)?;
+        let inner = py_to_yaml(py, &value_obj, is_key, arena)?;
         return if is_core_scalar_tag(&tag) {
             Ok(inner)
         } else {
@@ -1479,9 +1516,7 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
 
     if ty.is(str_type.bind(py)) {
         let s: &Bound<'_, PyString> = obj.cast()?;
-        return Ok(Yaml::Value(Scalar::String(Cow::Owned(
-            s.to_str()?.to_owned(),
-        ))));
+        return Ok(Yaml::Value(Scalar::String(Cow::Borrowed(arena.borrow(s)?))));
     }
 
     if obj.is_instance_of::<PyBytes>() || obj.is_instance_of::<PyByteArray>() {
@@ -1494,8 +1529,8 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
         let dict: &Bound<'_, PyDict> = obj.cast()?;
         let mut mapping = Mapping::with_capacity(dict.len());
         for (key_obj, value_obj) in dict.iter() {
-            let key_yaml = py_to_yaml(py, &key_obj, true)?;
-            let value_yaml = py_to_yaml(py, &value_obj, false)?;
+            let key_yaml = py_to_yaml(py, &key_obj, true, arena)?;
+            let value_yaml = py_to_yaml(py, &value_obj, false, arena)?;
             mapping.insert(key_yaml, value_yaml);
         }
         return Ok(Yaml::Mapping(mapping));
@@ -1505,7 +1540,7 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
         let list: &Bound<'_, PyList> = obj.cast()?;
         let mut values = Vec::with_capacity(list.len());
         for item in list.iter() {
-            values.push(py_to_yaml(py, &item, false)?);
+            values.push(py_to_yaml(py, &item, false, arena)?);
         }
         return Ok(Yaml::Sequence(values));
     }
@@ -1514,7 +1549,7 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
         let tuple: &Bound<'_, PyTuple> = obj.cast()?;
         let mut values = Vec::with_capacity(tuple.len());
         for item in tuple.iter() {
-            values.push(py_to_yaml(py, &item, false)?);
+            values.push(py_to_yaml(py, &item, false, arena)?);
         }
         return Ok(Yaml::Sequence(values));
     }
@@ -1525,7 +1560,7 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
             let mut values = Vec::with_capacity(len);
             for idx in 0..len {
                 let item = seq.get_item(idx)?;
-                values.push(py_to_yaml(py, &item, false)?);
+                values.push(py_to_yaml(py, &item, false, arena)?);
             }
             return Ok(Yaml::Sequence(values));
         }
@@ -1546,8 +1581,8 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
                     "mapping items must be (key, value) pairs",
                 ));
             }
-            let key_yaml = py_to_yaml(py, &tuple.get_item(0)?, true)?;
-            let value_yaml = py_to_yaml(py, &tuple.get_item(1)?, false)?;
+            let key_yaml = py_to_yaml(py, &tuple.get_item(0)?, true, arena)?;
+            let value_yaml = py_to_yaml(py, &tuple.get_item(1)?, false, arena)?;
             mapping.insert(key_yaml, value_yaml);
         }
         return Ok(Yaml::Mapping(mapping));
@@ -1561,7 +1596,7 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
         let iter = PyIterator::from_object(obj.as_any())?;
         let mut values = Vec::new();
         for item in iter {
-            values.push(py_to_yaml(py, &item?, false)?);
+            values.push(py_to_yaml(py, &item?, false, arena)?);
         }
         return Ok(Yaml::Sequence(values));
     }
@@ -1578,9 +1613,7 @@ fn py_to_yaml(py: Python<'_>, obj: &Bound<'_, PyAny>, is_key: bool) -> Result<Ya
     }
 
     if let Ok(s) = obj.cast::<PyString>() {
-        return Ok(Yaml::Value(Scalar::String(Cow::Owned(
-            s.to_str()?.to_owned(),
-        ))));
+        return Ok(Yaml::Value(Scalar::String(Cow::Borrowed(arena.borrow(s)?))));
     }
 
     Err(PyTypeError::new_err("unsupported type for YAML conversion"))

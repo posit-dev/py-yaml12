@@ -14,8 +14,13 @@ For almost every use case, `yaml12` lets you work with plain builtin Python type
 
 ## Installation
 
-The project targets Python 3.10+ and builds via `maturin` (Rust
-toolchain required). From the repository root:
+Install from PyPI:
+
+```bash
+pip install py-yaml12
+```
+
+For development, install from the repository root (requires Python 3.10+ and a Rust toolchain):
 
 ```bash
 python -m venv .venv
