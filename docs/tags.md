@@ -12,7 +12,7 @@ always starts with `!`, and it appears before the node’s value; it is
 not part of the scalar text itself.
 
 `yaml12` preserves tags by wrapping nodes in a `Yaml` object. A `Yaml`
-is a small frozen dataclass that carries the parsed `value` (a regular
+is a small immutable wrapper class that carries the parsed `value` (a regular
 Python type) and the `tag` string. Here is an example of parsing a tagged scalar:
 
 ```python

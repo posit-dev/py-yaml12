@@ -133,7 +133,7 @@ assert parsed == {
 
 Tags, custom handlers, and non-string mapping keys work without extra
 setup when you need them. Nodes that can’t be represented as plain
-Python types are wrapped in `Yaml` (a small frozen dataclass). You’ll
+Python types are wrapped in `Yaml` (a small immutable wrapper class). You’ll
 only see `Yaml` when:
 
 - A tagged node has no matching handler; inspect `.value` and `.tag`.

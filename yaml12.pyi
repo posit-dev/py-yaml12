@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
 from os import PathLike
-from typing import Any, Literal, Protocol, TypeAlias, overload
+from typing import Any, Literal, Protocol, TypeAlias, final, overload
 
 __all__: list[str]
 
@@ -18,18 +17,24 @@ class _Writable(Protocol):
     def write(self, data: str, /) -> int | None: ...
 
 
-@dataclass(frozen=True)
+@final
 class Yaml:
     """Tagged node or hashable wrapper for unhashable mapping keys."""
 
-    value: Any
-    tag: str | None = ...
+    def __new__(cls, value: Any, tag: str | None = ...) -> Yaml: ...
+    def __init__(self) -> None: ...
 
-    def __post_init__(self) -> None: ...
+    @property
+    def value(self) -> Any: ...
+
+    @property
+    def tag(self) -> str | None: ...
 
     def __getitem__(self, key: Any, /) -> Any: ...
     def __iter__(self) -> Any: ...
     def __len__(self) -> int: ...
+    def __hash__(self) -> int: ...
+    def __eq__(self, other: object) -> bool: ...
 
 
 @overload

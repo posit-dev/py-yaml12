@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use pyo3::sync::PyOnceLock;
 use pyo3::types::{
     PyAnyMethods, PyBool, PyByteArray, PyBytes, PyDict, PyDictMethods, PyFloat, PyInt, PyIterator,
-    PyList, PyModule, PySequence, PySequenceMethods, PyString, PyTuple, PyType,
+    PyList, PyModule, PySequence, PySequenceMethods, PyString, PyTuple,
 };
 use pyo3::Bound;
 use pyo3::IntoPyObjectExt;
@@ -20,9 +20,9 @@ use std::path::PathBuf;
 type Result<T> = PyResult<T>;
 type BuiltinTypes = (Py<PyAny>, Py<PyAny>, Py<PyAny>, Py<PyAny>);
 
-static YAML_CLASS: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
 static ABC_TYPES: PyOnceLock<(Py<PyAny>, Py<PyAny>)> = PyOnceLock::new();
 static BUILTIN_TYPES: PyOnceLock<BuiltinTypes> = PyOnceLock::new();
+static BUILTINS_ID: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
 const GIL_RELEASE_MIN_PARSE_LEN: usize = 2048;
 const GIL_RELEASE_MIN_EMIT_DOCS: usize = 4;
 const GIL_RELEASE_MIN_EMIT_COLLECTION_LEN: usize = 32;
@@ -226,23 +226,263 @@ fn _normalize_tag(py: Python<'_>, tag: Py<PyAny>) -> Result<Py<PyAny>> {
     }
 }
 
-#[pyfunction]
-fn _set_yaml_class(py: Python<'_>, cls: Py<PyAny>) -> Result<()> {
-    let bound = cls.bind(py);
-    bound
-        .cast::<PyType>()
-        .map_err(|_| PyTypeError::new_err("`cls` must be a Python type"))?;
+fn builtins_id(py: Python<'_>) -> Result<&Py<PyAny>> {
+    BUILTINS_ID.get_or_try_init(py, || -> Result<_> {
+        Ok(PyModule::import(py, "builtins")?.getattr("id")?.unbind())
+    })
+}
 
-    if let Some(existing) = YAML_CLASS.get(py) {
-        if existing.as_ptr() == cls.as_ptr() {
-            return Ok(());
-        }
-        return Err(PyValueError::new_err("Yaml class is already initialized"));
+fn normalize_yaml_node_tag<'a>(tag: &'a str) -> Cow<'a, str> {
+    let normalized_input = tag
+        .strip_prefix("!<")
+        .and_then(|rest| rest.strip_suffix('>'))
+        .filter(|inner| !inner.is_empty())
+        .unwrap_or(tag);
+
+    normalize_simple_tag_name_for_api(normalized_input)
+}
+
+fn freeze_for_yaml_hash(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<Py<PyAny>> {
+    if let Ok(node) = obj.extract::<PyRef<YamlNode>>() {
+        let tag_obj: Py<PyAny> = match &node.tag {
+            Some(tag) => tag.clone_ref(py).into_any(),
+            None => py.None(),
+        };
+        let frozen_value = freeze_for_yaml_hash(py, node.value.bind(py))?;
+        let frozen = PyTuple::new(
+            py,
+            [
+                PyString::new(py, "yaml").unbind().into_any(),
+                tag_obj,
+                frozen_value,
+            ],
+        )?;
+        return Ok(frozen.unbind().into_any());
     }
 
-    YAML_CLASS
-        .set(py, cls)
-        .map_err(|_| PyValueError::new_err("Yaml class is already initialized"))
+    let (mapping_cls, sequence_cls) = abc_types(py)?;
+    if obj.is_instance(mapping_cls.bind(py))? {
+        let items = obj.getattr("items")?.call0()?;
+        let iter = PyIterator::from_object(items.as_any())?;
+        let mut frozen_pairs: Vec<Py<PyAny>> = Vec::new();
+        for pair in iter {
+            let pair = pair?;
+            let tuple: Bound<'_, PyTuple> = pair
+                .cast_into()
+                .map_err(|_| PyTypeError::new_err("mapping items must be (key, value) pairs"))?;
+            if tuple.len() != 2 {
+                return Err(PyTypeError::new_err(
+                    "mapping items must be (key, value) pairs",
+                ));
+            }
+            let frozen_key = freeze_for_yaml_hash(py, &tuple.get_item(0)?)?;
+            let frozen_value = freeze_for_yaml_hash(py, &tuple.get_item(1)?)?;
+            let frozen_pair = PyTuple::new(py, [frozen_key, frozen_value])?;
+            frozen_pairs.push(frozen_pair.unbind().into_any());
+        }
+        let frozen_pairs = PyTuple::new(py, frozen_pairs)?;
+        let frozen = PyTuple::new(
+            py,
+            [
+                PyString::new(py, "map").unbind().into_any(),
+                frozen_pairs.unbind().into_any(),
+            ],
+        )?;
+        return Ok(frozen.unbind().into_any());
+    }
+
+    if obj.is_instance(sequence_cls.bind(py))?
+        && !obj.is_instance_of::<PyString>()
+        && !obj.is_instance_of::<PyBytes>()
+        && !obj.is_instance_of::<PyByteArray>()
+    {
+        let iter = PyIterator::from_object(obj.as_any())?;
+        let mut frozen_items: Vec<Py<PyAny>> = Vec::new();
+        for item in iter {
+            frozen_items.push(freeze_for_yaml_hash(py, &item?)?);
+        }
+        let frozen_items = PyTuple::new(py, frozen_items)?;
+        let frozen = PyTuple::new(
+            py,
+            [
+                PyString::new(py, "seq").unbind().into_any(),
+                frozen_items.unbind().into_any(),
+            ],
+        )?;
+        return Ok(frozen.unbind().into_any());
+    }
+
+    match obj.hash() {
+        Ok(_) => Ok(obj.clone().unbind()),
+        Err(err) if err.is_instance_of::<PyTypeError>(py) => {
+            let id_func = builtins_id(py)?;
+            let id_obj = id_func.bind(py).call1((obj,))?.unbind();
+            let frozen = PyTuple::new(
+                py,
+                [PyString::new(py, "unhashable").unbind().into_any(), id_obj],
+            )?;
+            Ok(frozen.unbind().into_any())
+        }
+        Err(err) => Err(err),
+    }
+}
+
+#[pyclass(name = "Yaml", module = "yaml12")]
+struct YamlNode {
+    value: Py<PyAny>,
+    tag: Option<Py<PyString>>,
+    frozen: Py<PyAny>,
+    hash: isize,
+}
+
+impl YamlNode {
+    fn new_internal(py: Python<'_>, value: Py<PyAny>, tag: Option<Py<PyString>>) -> Result<Self> {
+        let tag = match tag {
+            None => None,
+            Some(tag_obj) => {
+                let text = tag_obj.bind(py).to_str()?;
+                let normalized = normalize_yaml_node_tag(text);
+                if normalized.as_ref() == text {
+                    Some(tag_obj)
+                } else {
+                    Some(PyString::new(py, normalized.as_ref()).unbind())
+                }
+            }
+        };
+
+        let tag_obj: Py<PyAny> = match &tag {
+            Some(tag) => tag.clone_ref(py).into_any(),
+            None => py.None(),
+        };
+        let frozen_value = freeze_for_yaml_hash(py, value.bind(py))?;
+        let frozen = PyTuple::new(
+            py,
+            [
+                PyString::new(py, "tagged").unbind().into_any(),
+                tag_obj,
+                frozen_value,
+            ],
+        )?;
+        let frozen_any = frozen.unbind().into_any();
+        let hash = frozen_any.bind(py).hash()?;
+
+        Ok(Self {
+            value,
+            tag,
+            frozen: frozen_any,
+            hash,
+        })
+    }
+
+    fn proxy_target(&self, py: Python<'_>) -> Result<Option<Py<PyAny>>> {
+        let mut target = self.value.clone_ref(py);
+        if let Ok(inner) = target.bind(py).extract::<PyRef<YamlNode>>() {
+            target = inner.value.clone_ref(py);
+        }
+
+        let bound = target.bind(py);
+        if bound.is_instance_of::<PyString>()
+            || bound.is_instance_of::<PyBytes>()
+            || bound.is_instance_of::<PyByteArray>()
+        {
+            return Ok(None);
+        }
+
+        let (mapping_cls, sequence_cls) = abc_types(py)?;
+        if bound.is_instance(mapping_cls.bind(py))? || bound.is_instance(sequence_cls.bind(py))? {
+            return Ok(Some(target));
+        }
+
+        Ok(None)
+    }
+}
+
+#[pymethods]
+impl YamlNode {
+    #[new]
+    #[pyo3(signature = (value, tag=None))]
+    fn new(py: Python<'_>, value: Py<PyAny>, tag: Option<Py<PyString>>) -> Result<Self> {
+        Self::new_internal(py, value, tag)
+    }
+
+    #[getter]
+    fn value(&self, py: Python<'_>) -> Py<PyAny> {
+        self.value.clone_ref(py)
+    }
+
+    #[getter]
+    fn tag(&self, py: Python<'_>) -> Option<Py<PyString>> {
+        self.tag.as_ref().map(|tag| tag.clone_ref(py))
+    }
+
+    fn __hash__(&self) -> isize {
+        self.hash
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> Result<String> {
+        let value = self
+            .value
+            .bind(py)
+            .repr()
+            .and_then(|repr| repr.to_str().map(|text| text.to_owned()))
+            .unwrap_or_else(|_| "<repr failed>".to_string());
+
+        if let Some(tag) = &self.tag {
+            let tag_repr = tag
+                .bind(py)
+                .repr()
+                .and_then(|repr| repr.to_str().map(|text| text.to_owned()))
+                .unwrap_or_else(|_| "<repr failed>".to_string());
+            Ok(format!("Yaml(value={value}, tag={tag_repr})"))
+        } else {
+            Ok(format!("Yaml({value})"))
+        }
+    }
+
+    fn __getitem__(&self, py: Python<'_>, key: Py<PyAny>) -> Result<Py<PyAny>> {
+        let Some(target) = self.proxy_target(py)? else {
+            return Err(PyTypeError::new_err("Yaml.value does not support indexing"));
+        };
+
+        Ok(target.bind(py).get_item(key.bind(py))?.unbind())
+    }
+
+    fn __iter__(&self, py: Python<'_>) -> Result<Py<PyAny>> {
+        let Some(target) = self.proxy_target(py)? else {
+            return Err(PyTypeError::new_err("Yaml.value is not iterable"));
+        };
+
+        Ok(PyIterator::from_object(target.bind(py).as_any())?
+            .unbind()
+            .into_any())
+    }
+
+    fn __len__(&self, py: Python<'_>) -> Result<usize> {
+        let Some(target) = self.proxy_target(py)? else {
+            return Err(PyTypeError::new_err("Yaml.value has no len()"));
+        };
+
+        target.bind(py).len()
+    }
+
+    fn __richcmp__(
+        &self,
+        py: Python<'_>,
+        other: &Bound<'_, PyAny>,
+        op: pyo3::basic::CompareOp,
+    ) -> Result<Py<PyAny>> {
+        let Ok(other_node) = other.extract::<PyRef<YamlNode>>() else {
+            return Ok(py.NotImplemented());
+        };
+
+        let is_equal = self.frozen.bind(py).eq(other_node.frozen.bind(py))?;
+
+        match op {
+            pyo3::basic::CompareOp::Eq => Ok(is_equal.into_py_any(py)?),
+            pyo3::basic::CompareOp::Ne => Ok((!is_equal).into_py_any(py)?),
+            _ => Ok(py.NotImplemented()),
+        }
+    }
 }
 
 #[pyfunction(signature = (text, multi=false, handlers=None))]
@@ -257,7 +497,7 @@ fn _set_yaml_class(py: Python<'_>, cls: Py<PyAny>) -> Result<()> {
 /// Returns:
 ///     object: Parsed value(s): YAML mappings become `dict`, sequences become `list`, and scalars
 ///         resolve using the YAML 1.2 core schema to `bool`/`int`/`float`/`None`/`str`. Unhashable
-///         mapping keys (for example `list`/`dict`) are wrapped in the lightweight `Yaml` dataclass
+///         mapping keys (for example `list`/`dict`) are wrapped in the lightweight `Yaml` wrapper
 ///         to keep them hashable. Tagged nodes without a matching handler are also wrapped in `Yaml`
 ///         so the tag can be preserved.
 ///
@@ -382,7 +622,7 @@ fn parse_yaml(
 /// Returns:
 ///     object: Parsed value(s): YAML mappings become `dict`, sequences become `list`, and scalars
 ///         resolve using the YAML 1.2 core schema to `bool`/`int`/`float`/`None`/`str`. Unhashable
-///         mapping keys (for example `list`/`dict`) are wrapped in the lightweight `Yaml` dataclass
+///         mapping keys (for example `list`/`dict`) are wrapped in the lightweight `Yaml` wrapper
 ///         to keep them hashable. Tagged nodes without a matching handler are also wrapped in `Yaml`
 ///         so the tag can be preserved.
 ///
@@ -952,22 +1192,13 @@ fn convert_tagged(
 }
 
 fn make_yaml_node(py: Python<'_>, value: Py<PyAny>, tag: Option<&str>) -> Result<Py<PyAny>> {
-    let cls = YAML_CLASS
-        .get(py)
-        .ok_or_else(|| PyValueError::new_err("Yaml class is not initialized"))?;
-    if let Some(tag) = tag {
-        Ok(cls.bind(py).call1((value, tag))?.unbind())
-    } else {
-        Ok(cls.bind(py).call1((value,))?.unbind())
-    }
+    let tag = tag.map(|tag| PyString::new(py, tag).unbind());
+    Ok(Py::new(py, YamlNode::new_internal(py, value, tag)?)?.into_any())
 }
 
 fn is_yaml_node(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<bool> {
-    if let Some(cls) = YAML_CLASS.get(py) {
-        obj.is_instance(cls.bind(py))
-    } else {
-        Ok(false)
-    }
+    let _ = py;
+    Ok(obj.is_instance_of::<YamlNode>())
 }
 
 fn abc_types(py: Python<'_>) -> Result<&(Py<PyAny>, Py<PyAny>)> {
@@ -1412,12 +1643,12 @@ fn parse_tag_string(tag: &str) -> Result<Tag> {
 #[pymodule]
 pub fn yaml12(_py: Python<'_>, m: &Bound<'_, PyModule>) -> Result<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+    m.add_class::<YamlNode>()?;
     m.add_function(wrap_pyfunction!(parse_yaml, m)?)?;
     m.add_function(wrap_pyfunction!(read_yaml, m)?)?;
     m.add_function(wrap_pyfunction!(format_yaml, m)?)?;
     m.add_function(wrap_pyfunction!(write_yaml, m)?)?;
     m.add_function(wrap_pyfunction!(_normalize_tag, m)?)?;
-    m.add_function(wrap_pyfunction!(_set_yaml_class, m)?)?;
     m.add_function(wrap_pyfunction!(_dbg_yaml, m)?)?;
     Ok(())
 }
@@ -1427,7 +1658,6 @@ mod tests {
     use super::*;
     use pyo3::types::{PyDict, PyList, PyModule};
     use saphyr::{LoadableYamlNode, Scalar, Tag};
-    use std::ffi::CString;
     use std::sync::Mutex;
 
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -1446,62 +1676,6 @@ mod tests {
     fn init_test_module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
         let module = PyModule::new(py, "yaml12_test")?;
         super::yaml12(py, &module)?;
-        let builtins = PyModule::import(py, "builtins")?;
-        let yaml_cls = match builtins.getattr("_yaml12_test_yaml_cls") {
-            Ok(cls) if !cls.is_none() => cls.unbind(),
-            _ => {
-                let helpers = CString::new(
-                    r#"
-from dataclasses import dataclass
-from collections.abc import Mapping, Sequence
-
-def _freeze(obj):
-    if isinstance(obj, Yaml):
-        return ("yaml", obj.tag, _freeze(obj.value))
-    if isinstance(obj, Mapping):
-        return ("map", tuple((_freeze(k), _freeze(v)) for k, v in obj.items()))
-    if isinstance(obj, Sequence) and not isinstance(obj, (str, bytes, bytearray)):
-        return ("seq", tuple(_freeze(x) for x in obj))
-    try:
-        hash(obj)
-        return obj
-    except TypeError:
-        return ("unhashable", id(obj))
-
-@dataclass(frozen=True)
-class Yaml:
-    value: object
-    tag: str | None = None
-
-    def __post_init__(self):
-        frozen = ("tagged", self.tag, _freeze(self.value))
-        object.__setattr__(self, "_frozen", frozen)
-        object.__setattr__(self, "_hash", hash(frozen))
-
-    def __hash__(self):
-        return self._hash
-
-    def __eq__(self, other):
-        if not isinstance(other, Yaml):
-            return NotImplemented
-        return self._frozen == other._frozen
-                    "#,
-                )
-                .expect("helpers must not contain null bytes");
-
-                let locals = PyDict::new(py);
-                py.run(helpers.as_c_str(), Some(&locals), Some(&locals))?;
-                let yaml_cls = locals
-                    .get_item("Yaml")?
-                    .expect("Yaml class should be defined")
-                    .unbind();
-                builtins.setattr("_yaml12_test_yaml_cls", yaml_cls.clone_ref(py))?;
-                yaml_cls
-            }
-        };
-
-        module.call_method1("_set_yaml_class", (yaml_cls.clone_ref(py),))?;
-        module.setattr("Yaml", yaml_cls)?;
         Ok(module)
     }
 
