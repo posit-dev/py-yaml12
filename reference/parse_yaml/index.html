@@ -6,7 +6,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         
         
-        <link rel="canonical" href="https://t-kalinowski.github.io/py-yaml12/reference/parse_yaml/">
+        <link rel="canonical" href="https://posit-dev.github.io/py-yaml12/reference/parse_yaml/">
         <link rel="shortcut icon" href="../../img/favicon.ico">
         <title>parse_yaml() and read_yaml() - yaml12</title>
         <link href="../../css/bootstrap.min.css" rel="stylesheet">
@@ -17,6 +17,7 @@
         <link href="../../css/base.css" rel="stylesheet">
         <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
         <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <link href="../../extra.css" rel="stylesheet">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
         <script>hljs.highlightAll();</script> 
     </head>
@@ -47,6 +48,10 @@
                                     
 <li>
     <a href="../../tags/" class="dropdown-item">Tags, Anchors, and Advanced YAML</a>
+</li>
+                                    
+<li>
+    <a href="../../benchmarks/" class="dropdown-item">Benchmarks and Performance</a>
 </li>
                                 </ul>
                             </li>
@@ -92,7 +97,7 @@
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a href="https://github.com/t-kalinowski/py-yaml12/edit/master/docs/reference/parse_yaml.md" class="nav-link">Edit on t-kalinowski/py-yaml12
+                                <a href="https://github.com/posit-dev/py-yaml12/edit/master/docs/reference/parse_yaml.md" class="nav-link">Edit on posit-dev/py-yaml12
                                     </a>
                             </li>
                     </ul>
@@ -148,8 +153,8 @@ read_yaml(path, multi=False, handlers=None)
 </code></pre>
 <h2 id="arguments">Arguments<a class="headerlink" href="#arguments" title="Permanent link">&para;</a></h2>
 <ul>
-<li>text: <code>str</code> or sequence of <code>str</code>; sequence items are joined with
-  <code>"\n"</code>. When empty, returns <code>None</code> (or <code>[]</code> when <code>multi=True</code>).</li>
+<li>text: <code>str</code> or iterable of <code>str</code>; chunks are concatenated exactly as provided (no implicit
+  separators are inserted). When empty, returns <code>None</code> (or <code>[]</code> when <code>multi=True</code>).</li>
 <li>path: <code>str</code>, <code>os.PathLike</code>, or readable object yielding <code>str</code> or
   UTF-8 <code>bytes</code>.</li>
 <li>multi: When <code>True</code>, parse the whole stream and return a list of
@@ -164,6 +169,8 @@ read_yaml(path, multi=False, handlers=None)
 handler (including informative core tags such as <code>!!timestamp</code> or
 <code>!!binary</code>) become <code>Yaml</code> objects. Unhashable mapping keys are wrapped
 in <code>Yaml</code> so they remain hashable.</p>
+<p>Mapping key order is preserved in the returned <code>dict</code> (in the same order keys appear in
+the YAML input).</p>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
 <pre><code class="language-python">from yaml12 import parse_yaml
 
@@ -191,7 +198,7 @@ lines = [
     &quot;---&quot;,
     &quot;# Body that is not YAML&quot;,
 ]
-parse_yaml(lines)
+parse_yaml(&quot;\n&quot;.join(lines))
 # {'title': 'Front matter only', 'params': {'answer': 42}}
 </code></pre></div>
             </div>

@@ -6,7 +6,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         
         
-        <link rel="canonical" href="https://t-kalinowski.github.io/py-yaml12/tags/">
+        <link rel="canonical" href="https://posit-dev.github.io/py-yaml12/tags/">
         <link rel="shortcut icon" href="../img/favicon.ico">
         <title>Tags, Anchors, and Advanced YAML - yaml12</title>
         <link href="../css/bootstrap.min.css" rel="stylesheet">
@@ -17,6 +17,7 @@
         <link href="../css/base.css" rel="stylesheet">
         <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
         <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <link href="../extra.css" rel="stylesheet">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
         <script>hljs.highlightAll();</script> 
     </head>
@@ -47,6 +48,10 @@
                                     
 <li>
     <a href="./" class="dropdown-item active" aria-current="page">Tags, Anchors, and Advanced YAML</a>
+</li>
+                                    
+<li>
+    <a href="../benchmarks/" class="dropdown-item">Benchmarks and Performance</a>
 </li>
                                 </ul>
                             </li>
@@ -87,12 +92,12 @@
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a rel="next" href="../reference/" class="nav-link">
+                                <a rel="next" href="../benchmarks/" class="nav-link">
                                     Next <i class="fa fa-arrow-right"></i>
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a href="https://github.com/t-kalinowski/py-yaml12/edit/master/docs/tags.md" class="nav-link">Edit on t-kalinowski/py-yaml12
+                                <a href="https://github.com/posit-dev/py-yaml12/edit/master/docs/tags.md" class="nav-link">Edit on posit-dev/py-yaml12
                                     </a>
                             </li>
                     </ul>
@@ -139,6 +144,10 @@
               <ul class="nav flex-column">
               </ul>
             </li>
+            <li class="nav-item" data-bs-level="2"><a href="#debugging" class="nav-link">Debugging</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
             <li class="nav-item" data-bs-level="2"><a href="#very-advanced-tags" class="nav-link">(Very) advanced tags</a>
               <ul class="nav flex-column">
               </ul>
@@ -151,57 +160,102 @@
                     <div class="col-md-9" role="main">
 
 <h1 id="yaml-tags-anchors-and-advanced-features-with-yaml12">YAML Tags, Anchors, and Advanced Features with yaml12<a class="headerlink" href="#yaml-tags-anchors-and-advanced-features-with-yaml12" title="Permanent link">&para;</a></h1>
-<p>This guide picks up where the 2-minute intro leaves off. It shows what
-YAML tags are and how to work with them in <code>yaml12</code> using handlers.
-Along the way it covers complex mapping keys and document streams so you
-can handle real-world YAML.</p>
+<p>This guide picks up where the “YAML in 2 Minutes” intro leaves off. It
+explains what YAML tags are and how to work with them in <code>yaml12</code> using
+tag handlers. Along the way we also cover complex mapping keys, document
+streams, and anchors, so you can handle real-world YAML 1.2.</p>
 <h2 id="tags-in-yaml-and-how-yaml12-handles-them">Tags in YAML and how yaml12 handles them<a class="headerlink" href="#tags-in-yaml-and-how-yaml12-handles-them" title="Permanent link">&para;</a></h2>
-<p>Tags annotate any YAML node with extra meaning. They always start with
-<code>!</code> in YAML syntax and appear before the node's value; they are not part
-of the scalar text itself.</p>
-<p><code>yaml12</code> preserves tags as <code>Yaml</code> objects. The object carries <code>value</code> (a
-regular Python type) and <code>tag</code> (a string). Parsing a tagged scalar:</p>
+<p>Tags annotate any YAML node with extra meaning. In YAML syntax a tag
+always starts with <code>!</code>, and it appears before the node’s value; it is
+not part of the scalar text itself.</p>
+<p><code>yaml12</code> preserves tags by wrapping nodes in a <code>Yaml</code> object. A <code>Yaml</code>
+is a small immutable wrapper class that carries the parsed <code>value</code> (a regular
+Python type) and the <code>tag</code> string. Here is an example of parsing a tagged scalar:</p>
 <pre><code class="language-python">from yaml12 import Yaml, parse_yaml
 
 color = parse_yaml(&quot;!color red&quot;)
 assert isinstance(color, Yaml) and (color.tag, color.value) == (&quot;!color&quot;, &quot;red&quot;)
 </code></pre>
-<p>Custom tags bypass the usual scalar typing; the scalar is returned as a
-string even if it looks like another type.</p>
+<p>The presence of a custom tag bypasses the usual scalar typing: the
+scalar is returned as a string even if it looks like another type.</p>
 <pre><code class="language-python">assert parse_yaml(&quot;! true&quot;) == Yaml(value=&quot;true&quot;, tag=&quot;!&quot;)
 assert parse_yaml(&quot;true&quot;) is True
 </code></pre>
 <h3 id="using-handlers-to-transform-tagged-nodes-while-parsing">Using handlers to transform tagged nodes while parsing<a class="headerlink" href="#using-handlers-to-transform-tagged-nodes-while-parsing" title="Permanent link">&para;</a></h3>
 <p><code>parse_yaml()</code> and <code>read_yaml()</code> accept <code>handlers</code>: a <code>dict</code> mapping tag
 strings to callables. Handlers run on any matching tagged node. For
-tagged scalars the handler receives the Python scalar; for tagged
-sequences or mappings it receives a plain list/dict.</p>
-<pre><code class="language-python">from dataclasses import dataclass
-from yaml12 import parse_yaml
+tagged scalars the handler receives a plain Python scalar; for tagged
+sequences or mappings, it receives a plain list or dict.</p>
+<p>Here is an example of using a handler to evaluate <code>!expr</code> nodes:</p>
+<pre><code class="language-python">from yaml12 import parse_yaml
 
-@dataclass(frozen=True)
-class Point:
-    x: int
-    y: int
+handlers = {&quot;!expr&quot;: lambda value: eval(str(value))}
 
-def point_handler(value):
-    return Point(x=value[&quot;x&quot;], y=value[&quot;y&quot;])
-
-doc = parse_yaml(
-    &quot;vertex: !point {x: 1,  y: 2}&quot;,
-    handlers={&quot;!point&quot;: point_handler},
-)
-
-assert doc[&quot;vertex&quot;] == Point(1, 2)
+assert parse_yaml(&quot;!expr 1 + 1&quot;, handlers=handlers) == 2
 </code></pre>
-<p>Handlers apply to both values and keys, including non-specific <code>!</code> tags
-if you register <code>"!"</code>. If a handler raises an exception, it propagates
-unchanged to make debugging easy.</p>
-<p>Any tag without a matching handler stays as a <code>Yaml</code> object. Handlers
-without matching tags are simply unused.</p>
+<p>Any errors from a handler stop parsing and propagate unchanged:</p>
+<pre><code class="language-python">from yaml12 import parse_yaml
+
+def boom(value):
+    raise ValueError(&quot;boom&quot;)
+
+parse_yaml(&quot;!boom 1&quot;, handlers={&quot;!boom&quot;: boom})  # ValueError(&quot;boom&quot;)
+</code></pre>
+<p>Any tag without a matching handler is left preserved as a <code>Yaml</code> object,
+and handlers without matching tags are simply unused:</p>
+<pre><code class="language-python">from yaml12 import Yaml, parse_yaml
+
+yaml_text = &quot;&quot;&quot;
+- !expr 1 + 1
+- !upper yaml is awesome
+- !note this tag has no handler
+&quot;&quot;&quot;
+
+handlers = {
+    &quot;!expr&quot;: lambda value: eval(str(value)),
+    &quot;!upper&quot;: str.upper,
+    &quot;!lower&quot;: str.lower,  # unused
+}
+
+out = parse_yaml(yaml_text, handlers=handlers)
+assert out == [2, &quot;YAML IS AWESOME&quot;, Yaml(&quot;this tag has no handler&quot;, &quot;!note&quot;)]
+</code></pre>
+<p>With a tagged sequence or mapping, the handler is called with a plain
+list or dict:</p>
+<pre><code class="language-python">from yaml12 import parse_yaml
+
+def seq_handler(value):
+    assert value == [&quot;a&quot;, &quot;b&quot;]
+    return &quot;handled-seq&quot;
+
+def map_handler(value):
+    assert value == {&quot;key1&quot;: 1, &quot;key2&quot;: 2}
+    return &quot;handled-map&quot;
+
+yaml_text = &quot;&quot;&quot;
+- !some_seq_tag [a, b]
+- !some_map_tag {key1: 1, key2: 2}
+&quot;&quot;&quot;
+
+out = parse_yaml(
+    yaml_text,
+    handlers={
+        &quot;!some_seq_tag&quot;: seq_handler,
+        &quot;!some_map_tag&quot;: map_handler,
+    },
+)
+assert out == [&quot;handled-seq&quot;, &quot;handled-map&quot;]
+</code></pre>
+<p>Handlers apply to both values and keys, including the non-specific <code>!</code>
+tag if you register <code>"!"</code>. If a handler raises an exception, parsing
+stops and you see the exception unchanged, which makes debugging easy.</p>
+<p>Any tag without a matching handler stays as a <code>Yaml</code> object, and any
+unused handlers are simply ignored. Handlers make it easy to opt into
+powerful behaviors while keeping the default parser strict and safe.</p>
 <h3 id="post-process-tags-yourself">Post-process tags yourself<a class="headerlink" href="#post-process-tags-yourself" title="Permanent link">&para;</a></h3>
-<p>You can also parse without handlers and walk the result yourself. For
-example, processing <code>!expr</code> scalars manually:</p>
+<p>If you want more control, you can parse without handlers and then walk
+the result yourself. For example, here is a tiny post-processor for
+<code>!expr</code> scalars:</p>
 <pre><code class="language-python">from yaml12 import Yaml, parse_yaml
 
 def eval_yaml_expr_nodes(obj):
@@ -218,46 +272,73 @@ def eval_yaml_expr_nodes(obj):
 raw = parse_yaml(&quot;!expr 1 + 1&quot;)
 assert isinstance(raw, Yaml) and eval_yaml_expr_nodes(raw) == 2
 </code></pre>
+<p>Because tags can also appear on mapping keys, postprocessors should walk
+dict keys as well (as in the example above). If you transform all tagged
+keys into plain hashable scalars, you can rebuild a dict with those new
+keys.</p>
 <h2 id="mappings-revisited-non-string-keys-and-yaml">Mappings revisited: non-string keys and <code>Yaml</code><a class="headerlink" href="#mappings-revisited-non-string-keys-and-yaml" title="Permanent link">&para;</a></h2>
-<p>YAML mapping keys do not have to be plain strings; any node can be a
-key. For example, this is valid even though the key is a boolean:</p>
+<p>In YAML, mapping keys do not have to be plain strings; any node can be a
+key, including booleans, numbers, sequences, or other mappings. For
+example, this is valid YAML even though the key is a boolean:</p>
 <pre><code class="language-yaml">true: true
 </code></pre>
-<p>Parsed with <code>yaml12</code>, unhashable or tagged keys become <code>Yaml</code> so they
-can live in a Python <code>dict</code> while preserving equality and hashing by
-structure:</p>
+<p>When a key can’t be represented directly as a plain Python dict key,
+<code>yaml12</code> wraps it in <code>Yaml</code>. That preserves the original key and makes
+it hashable (with equality defined by structure, including mapping key order), so it can safely live
+in a Python <code>dict</code>:</p>
 <pre><code class="language-python">parsed = parse_yaml(&quot;true: true&quot;)
 key = next(iter(parsed))
 assert key is True and parsed[key] is True and not isinstance(key, Yaml)
 </code></pre>
-<p>Complex keys use the explicit mapping-key indicator <code>?</code>:</p>
+<p>For complex key values, YAML uses the explicit mapping-key indicator
+<code>?</code>:</p>
 <pre><code class="language-yaml">? [a, b]
 : tuple
 ? {x: 1, y: 2}
 : map-key
 </code></pre>
 <p>Becomes:</p>
-<pre><code class="language-python">parsed = parse_yaml(...above yaml...)
-keys = list(parsed)
-assert all(isinstance(k, Yaml) for k in keys) and keys[0].value == [&quot;a&quot;, &quot;b&quot;] and keys[1].value == {&quot;x&quot;: 1, &quot;y&quot;: 2}
+<pre><code class="language-python">from yaml12 import Yaml, parse_yaml
+
+yaml_text = &quot;&quot;&quot;
+? [a, b]
+: tuple
+? {x: 1, y: 2}
+: map-key
+&quot;&quot;&quot;
+parsed = parse_yaml(yaml_text)
+
+seq_key, map_key = list(parsed)
+assert isinstance(seq_key, Yaml) and seq_key.value == [&quot;a&quot;, &quot;b&quot;]
+assert isinstance(map_key, Yaml) and map_key.value == {&quot;x&quot;: 1, &quot;y&quot;: 2}
+assert parsed[Yaml([&quot;a&quot;, &quot;b&quot;])] == &quot;tuple&quot;
+assert parsed[Yaml({&quot;x&quot;: 1, &quot;y&quot;: 2})] == &quot;map-key&quot;
 </code></pre>
 <h3 id="tagged-mapping-keys">Tagged mapping keys<a class="headerlink" href="#tagged-mapping-keys" title="Permanent link">&para;</a></h3>
-<p>Handlers run on keys too, so a handler can turn tagged keys into friendly
-Python keys before they are wrapped.</p>
+<p>Handlers run on keys too, so a handler can turn tagged keys into
+friendly Python keys before they are wrapped.</p>
 <pre><code class="language-python">handlers = {&quot;!upper&quot;: str.upper}
 result = parse_yaml(&quot;!upper key: value&quot;, handlers=handlers)
 assert result == {&quot;KEY&quot;: &quot;value&quot;}
 </code></pre>
+<p>If a tagged key has no matching handler, it is preserved as a <code>Yaml</code>
+key:</p>
+<pre><code class="language-python">from yaml12 import Yaml, parse_yaml
+
+parsed = parse_yaml(&quot;!custom foo: 1&quot;)
+key = next(iter(parsed))
+assert isinstance(key, Yaml) and key.tag == &quot;!custom&quot; and key.value == &quot;foo&quot;
+</code></pre>
 <p>If you anticipate tagged mapping keys that you want to process yourself,
 walk the <code>Yaml</code> keys alongside the values and unwrap them as needed.</p>
 <h2 id="document-streams-and-markers">Document streams and markers<a class="headerlink" href="#document-streams-and-markers" title="Permanent link">&para;</a></h2>
-<p>Most YAML files contain a single document. YAML also supports document
-streams: multiple documents separated by <code>---</code> and optionally closed by
-<code>...</code>.</p>
+<p>Most YAML files contain a single YAML <em>document</em>. YAML also supports
+<em>document streams</em>: multiple documents separated by <code>---</code> and
+optionally closed by <code>...</code>.</p>
 <h3 id="reading-multiple-documents">Reading multiple documents<a class="headerlink" href="#reading-multiple-documents" title="Permanent link">&para;</a></h3>
-<p><code>parse_yaml()</code> and <code>read_yaml()</code> default to <code>multi=False</code>, returning only
-the first document. When <code>multi=True</code>, all documents are returned as a
-list.</p>
+<p><code>parse_yaml()</code> and <code>read_yaml()</code> default to <code>multi=False</code>. In that mode,
+they stop after the first document. When <code>multi=True</code>, all documents in
+the stream are returned as a list.</p>
 <pre><code class="language-python">doc_stream = &quot;&quot;&quot;
 ---
 doc 1
@@ -270,11 +351,11 @@ parsed_all = parse_yaml(doc_stream, multi=True)
 assert (parsed_first, parsed_all) == (&quot;doc 1&quot;, [&quot;doc 1&quot;, &quot;doc 2&quot;])
 </code></pre>
 <h3 id="writing-multiple-documents">Writing multiple documents<a class="headerlink" href="#writing-multiple-documents" title="Permanent link">&para;</a></h3>
-<p><code>write_yaml()</code> and <code>format_yaml()</code> default to a single document. With
-<code>multi=True</code>, the value must be a sequence of documents and the output
-uses <code>---</code> between documents and <code>...</code> after the final one. For single
-documents, <code>write_yaml()</code> always wraps the body with <code>---</code> and a final
-<code>...</code>, while <code>format_yaml()</code> returns just the body.</p>
+<p><code>write_yaml()</code> and <code>format_yaml()</code> also default to a single document.
+With <code>multi=True</code>, the value must be a sequence of documents and the
+output uses <code>---</code> between documents and <code>...</code> after the final one. For
+single documents, <code>write_yaml()</code> always wraps the body with <code>---</code> and a
+final <code>...</code>, while <code>format_yaml()</code> returns just the body.</p>
 <pre><code class="language-python">from yaml12 import format_yaml, write_yaml
 
 docs = [&quot;first&quot;, &quot;second&quot;]
@@ -282,7 +363,7 @@ text = format_yaml(docs, multi=True)
 assert text.startswith(&quot;---&quot;) and text.rstrip().endswith(&quot;...&quot;)
 write_yaml(docs, path=&quot;out.yml&quot;, multi=True)
 </code></pre>
-<p>When <code>multi=False</code>, parsing stops after the first document, even if later
+<p>When <code>multi=False</code>, parsing stops after the first document—even if later
 content is not valid YAML. That makes it easy to extract front matter
 from files that mix YAML with other text (like Markdown).</p>
 <pre><code class="language-python">rmd_lines = [
@@ -293,12 +374,12 @@ from files that mix YAML with other text (like Markdown).</p>
     &quot;---&quot;,
     &quot;# Body that is not YAML&quot;,
 ]
-frontmatter = parse_yaml(rmd_lines)
+frontmatter = parse_yaml(&quot;\n&quot;.join(rmd_lines))
 assert frontmatter == {&quot;title&quot;: &quot;Front matter only&quot;, &quot;params&quot;: {&quot;answer&quot;: 42}}
 </code></pre>
 <h2 id="writing-yaml-with-tags">Writing YAML with tags<a class="headerlink" href="#writing-yaml-with-tags" title="Permanent link">&para;</a></h2>
-<p>Attach <code>Yaml</code> to values before calling <code>format_yaml()</code> or <code>write_yaml()</code>
-to emit a tag.</p>
+<p>To emit a tag, wrap a value in <code>Yaml</code> before calling <code>format_yaml()</code> or
+<code>write_yaml()</code>.</p>
 <pre><code class="language-python">from yaml12 import Yaml, write_yaml
 
 tagged = Yaml(&quot;1 + x&quot;, &quot;!expr&quot;)
@@ -325,8 +406,9 @@ key = next(k for k in reparsed if isinstance(k, Yaml))
 assert key.tag == &quot;!k&quot; and key.value == &quot;tagged-key&quot; and reparsed[key] == &quot;v&quot;
 </code></pre>
 <h2 id="serializing-custom-python-objects">Serializing custom Python objects<a class="headerlink" href="#serializing-custom-python-objects" title="Permanent link">&para;</a></h2>
-<p>You can opt into rich types by tagging your own objects on emit and
-supplying a handler on parse. Here is a round-trip for a dataclass:</p>
+<p>You can opt into richer domain types by tagging your own objects on
+emit and supplying a handler on parse. Here is a round-trip for a
+dataclass:</p>
 <pre><code class="language-python">from dataclasses import dataclass, asdict
 from yaml12 import Yaml, format_yaml, parse_yaml
 
@@ -368,7 +450,18 @@ recycled:
 first, second = parsed[&quot;recycled&quot;]
 assert first[&quot;a&quot;] == &quot;b&quot; and second[&quot;c&quot;] == &quot;d&quot;
 </code></pre>
+<h2 id="debugging">Debugging<a class="headerlink" href="#debugging" title="Permanent link">&para;</a></h2>
+<p>If you want to inspect how YAML nodes are parsed before conversion to
+Python types, use the internal helper <code>yaml12._dbg_yaml()</code> to
+pretty-print the raw <code>saphyr::Yaml</code> structures:</p>
+<pre><code class="language-python">import yaml12
+
+yaml12._dbg_yaml(&quot;!custom [1, 2]&quot;)
+</code></pre>
+<p><code>_dbg_yaml</code> is intended for debugging and may change without notice.</p>
 <h2 id="very-advanced-tags">(Very) advanced tags<a class="headerlink" href="#very-advanced-tags" title="Permanent link">&para;</a></h2>
+<p>The following YAML features are uncommon, but <code>yaml12</code> supports them for
+full YAML 1.2 compliance.</p>
 <h3 id="tag-directives-tag">Tag directives (<code>%TAG</code>)<a class="headerlink" href="#tag-directives-tag" title="Permanent link">&para;</a></h3>
 <p>YAML lets you declare tag handles at the top of a document. The syntax
 is <code>%TAG !&lt;name&gt;! &lt;handle&gt;</code> and it applies to the rest of the document.</p>
@@ -389,13 +482,15 @@ item: !gizmo foo
 assert parse_yaml(text)[&quot;item&quot;].tag == &quot;tag:example.com,2024:widgets/gizmo&quot;
 </code></pre>
 <h3 id="tag-uris">Tag URIs<a class="headerlink" href="#tag-uris" title="Permanent link">&para;</a></h3>
-<p>To bypass handle resolution, use <code>!&lt;...&gt;</code> with a valid URI-like string:</p>
+<p>To specify a verbatim tag, use <code>!&lt;...&gt;</code> with a valid URI-like string. For
+simple tags like <code>gizmo</code>, <code>yaml12</code> normalizes <code>!&lt;gizmo&gt;</code> to the local tag
+form <code>!gizmo</code>:</p>
 <pre><code class="language-python">parsed = parse_yaml(&quot;&quot;&quot;
 %TAG ! tag:example.com,2024:widgets/
 ---
 item: !&lt;gizmo&gt; foo
 &quot;&quot;&quot;)
-assert parsed[&quot;item&quot;].tag == &quot;gizmo&quot;
+assert parsed[&quot;item&quot;].tag == &quot;!gizmo&quot;
 </code></pre>
 <h3 id="core-schema-tags">Core schema tags<a class="headerlink" href="#core-schema-tags" title="Permanent link">&para;</a></h3>
 <p>Tags beginning with <code>!!</code> resolve against the YAML core schema handle
@@ -404,6 +499,9 @@ assert parsed[&quot;item&quot;].tag == &quot;gizmo&quot;
 and are normalized to plain Python values. Informative core tags
 (<code>!!timestamp</code>, <code>!!binary</code>, <code>!!set</code>, <code>!!omap</code>, <code>!!pairs</code>) stay tagged so
 you can decide how to handle them.</p>
+<p>YAML 1.2 removed these informative tags from the core schema, but they are
+still valid tags and occasionally useful. <code>yaml12</code> preserves them as <code>Yaml</code>
+unless you supply a handler to convert them to richer Python types.</p>
 <pre><code class="language-python">from yaml12 import Yaml, parse_yaml
 
 yaml_text = &quot;&quot;&quot;
@@ -431,8 +529,8 @@ def binary_handler(value):
 converted = parse_yaml(
     yaml_text,
     handlers={
-        &quot;tag:yaml.org,2002:timestamp&quot;: ts_handler,
-        &quot;tag:yaml.org,2002:binary&quot;: binary_handler,
+        &quot;!!timestamp&quot;: ts_handler,
+        &quot;!!binary&quot;: binary_handler,
     },
 )
 assert isinstance(converted[0], datetime) and isinstance(converted[2], (bytes, bytearray))

@@ -6,7 +6,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <meta name="description" content="Rust-backed YAML 1.2 parsing and emitting for Python.">
         
-        <link rel="canonical" href="https://t-kalinowski.github.io/py-yaml12/">
+        <link rel="canonical" href="https://posit-dev.github.io/py-yaml12/">
         <link rel="shortcut icon" href="img/favicon.ico">
         <title>yaml12</title>
         <link href="css/bootstrap.min.css" rel="stylesheet">
@@ -17,6 +17,7 @@
         <link href="css/base.css" rel="stylesheet">
         <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
         <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <link href="extra.css" rel="stylesheet">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
         <script>hljs.highlightAll();</script> 
     </head>
@@ -47,6 +48,10 @@
                                     
 <li>
     <a href="tags/" class="dropdown-item">Tags, Anchors, and Advanced YAML</a>
+</li>
+                                    
+<li>
+    <a href="benchmarks/" class="dropdown-item">Benchmarks and Performance</a>
 </li>
                                 </ul>
                             </li>
@@ -92,7 +97,7 @@
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a href="https://github.com/t-kalinowski/py-yaml12/edit/master/docs/index.md" class="nav-link">Edit on t-kalinowski/py-yaml12
+                                <a href="https://github.com/posit-dev/py-yaml12/edit/master/docs/index.md" class="nav-link">Edit on posit-dev/py-yaml12
                                     </a>
                             </li>
                     </ul>
@@ -147,8 +152,10 @@ and correctness. Built on the excellent
   round-trip cleanly when needed; see the advanced guide if needed.</li>
 </ul>
 <h2 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h2>
-<p>The project targets Python 3.10+ and builds via <code>maturin</code> (Rust
-toolchain required). From the repository root:</p>
+<p>Install from PyPI:</p>
+<pre><code class="language-bash">pip install py-yaml12
+</code></pre>
+<p>For development, install from the repository root (requires Python 3.10+ and a Rust toolchain):</p>
 <pre><code class="language-bash">python -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
@@ -248,14 +255,19 @@ assert parsed == {
 </code></pre>
 <h3 id="tagged-nodes-and-mapping-keys-advanced">Tagged nodes and mapping keys (advanced)<a class="headerlink" href="#tagged-nodes-and-mapping-keys-advanced" title="Permanent link">&para;</a></h3>
 <p>Tags, custom handlers, and non-string mapping keys work without extra
-setup when you need them. Nodes that cannot be represented as plain
-Python types are wrapped in <code>Yaml</code> (a frozen dataclass). You will only
-see <code>Yaml</code> when:</p>
+setup when you need them. Nodes that can’t be represented as plain
+Python types are wrapped in <code>Yaml</code> (a small immutable wrapper class). You’ll
+only see <code>Yaml</code> when:</p>
 <ul>
 <li>A tagged node has no matching handler; inspect <code>.value</code> and <code>.tag</code>.</li>
-<li>A mapping key is a collection or otherwise unhashable; wrapping makes
-  it hashable while preserving any tag.</li>
+<li>A mapping key is a collection or otherwise unhashable; wrapping in <code>Yaml()</code> makes
+  it hashable.</li>
 </ul>
+<pre><code class="language-python">from yaml12 import Yaml, format_yaml, parse_yaml
+
+mapping = {Yaml(&quot;tagged-key&quot;, &quot;!k&quot;): &quot;v&quot;}
+assert parse_yaml(format_yaml(mapping)) == mapping
+</code></pre>
 <p>See the advanced guide for details.</p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
 <ul>
@@ -346,5 +358,5 @@ see <code>Yaml</code> when:</p>
 
 <!--
 MkDocs version : 1.6.1
-Build Date UTC : 2025-11-25 22:34:37.976177+00:00
+Build Date UTC : 2025-12-29 17:34:30.339941+00:00
 -->

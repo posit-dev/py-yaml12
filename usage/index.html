@@ -6,7 +6,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         
         
-        <link rel="canonical" href="https://t-kalinowski.github.io/py-yaml12/usage/">
+        <link rel="canonical" href="https://posit-dev.github.io/py-yaml12/usage/">
         <link rel="shortcut icon" href="../img/favicon.ico">
         <title>YAML in 2 Minutes - yaml12</title>
         <link href="../css/bootstrap.min.css" rel="stylesheet">
@@ -17,6 +17,7 @@
         <link href="../css/base.css" rel="stylesheet">
         <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
         <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <link href="../extra.css" rel="stylesheet">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
         <script>hljs.highlightAll();</script> 
     </head>
@@ -47,6 +48,10 @@
                                     
 <li>
     <a href="../tags/" class="dropdown-item">Tags, Anchors, and Advanced YAML</a>
+</li>
+                                    
+<li>
+    <a href="../benchmarks/" class="dropdown-item">Benchmarks and Performance</a>
 </li>
                                 </ul>
                             </li>
@@ -92,7 +97,7 @@
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a href="https://github.com/t-kalinowski/py-yaml12/edit/master/docs/usage.md" class="nav-link">Edit on t-kalinowski/py-yaml12
+                                <a href="https://github.com/posit-dev/py-yaml12/edit/master/docs/usage.md" class="nav-link">Edit on posit-dev/py-yaml12
                                     </a>
                             </li>
                     </ul>
@@ -116,6 +121,10 @@
             <li class="nav-item" data-bs-level="1"><a href="#yaml-in-2-minutes-a-gentle-introduction-for-python-users" class="nav-link">YAML in 2 Minutes: A Gentle Introduction for Python Users</a>
               <ul class="nav flex-column">
             <li class="nav-item" data-bs-level="2"><a href="#a-first-example" class="nav-link">A first example</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#comments" class="nav-link">Comments</a>
               <ul class="nav flex-column">
               </ul>
             </li>
@@ -145,9 +154,11 @@
 <h1 id="yaml-in-2-minutes-a-gentle-introduction-for-python-users">YAML in 2 Minutes: A Gentle Introduction for Python Users<a class="headerlink" href="#yaml-in-2-minutes-a-gentle-introduction-for-python-users" title="Permanent link">&para;</a></h1>
 <pre><code class="language-python">from yaml12 import parse_yaml
 </code></pre>
-<p>YAML is a human-friendly data serialization format. Think of it as
-"JSON with comments and nicer multiline strings." <code>yaml12</code> follows the
-modern YAML 1.2 spec (no surprising 1.1-era conversions).</p>
+<p>Here’s a short introduction to YAML for Python users. YAML is a data
+serialization format designed to be easy for humans to read and write.</p>
+<p>Think of YAML as “JSON with comments and nicer multiline strings.”
+<code>yaml12</code> parses YAML 1.2 (the modern specification that removes some of
+YAML 1.1’s surprising eager conversions) into plain Python objects.</p>
 <p>YAML has three building blocks: <strong>scalars</strong> (single values),
 <strong>sequences</strong> (ordered collections), and <strong>mappings</strong> (key/value pairs).
 JSON is a subset of YAML 1.2, so all valid JSON is also valid YAML and
@@ -170,26 +181,8 @@ settings:
     that keeps
     line breaks.
 </code></pre>
-<pre><code class="language-python">first_example_text = &quot;&quot;&quot;
-title: A Modern YAML parser written in Rust
-properties: [correct, safe, fast, simple]
-score: 9.5
-categories:
-  - yaml
-  - python
-  - example
-settings:
-  note: &gt;
-    This is a folded block
-    that turns line breaks
-    into spaces.
-  note_literal: |
-    This is a literal block
-    that keeps
-    line breaks.
-&quot;&quot;&quot;
-
-doc = parse_yaml(first_example_text)
+<p>Let’s parse that with <code>yaml12</code>:</p>
+<pre><code class="language-python">doc = parse_yaml(first_example_text)
 
 assert doc == {
     &quot;title&quot;: &quot;A Modern YAML parser written in Rust&quot;,
@@ -202,17 +195,29 @@ assert doc == {
     },
 }
 </code></pre>
+<h2 id="comments">Comments<a class="headerlink" href="#comments" title="Permanent link">&para;</a></h2>
+<p>Comments start with <code>#</code> and run to the end of the line. They must be
+separated from values by whitespace and can sit on their own line or at
+line ends. <code>yaml12</code> ignores them.</p>
+<pre><code class="language-yaml"># Whole-line comment
+title: example # inline comment
+items: [a, b] # trailing comment
+</code></pre>
+<p>→ <code>{"title": "example", "items": ["a", "b"]}</code></p>
 <h2 id="collections">Collections<a class="headerlink" href="#collections" title="Permanent link">&para;</a></h2>
 <p>There are two collection types: <strong>sequences</strong> and <strong>mappings</strong>.</p>
 <h3 id="sequences-yamls-ordered-collections">Sequences: YAML's ordered collections<a class="headerlink" href="#sequences-yamls-ordered-collections" title="Permanent link">&para;</a></h3>
-<p>Each item begins with <code>-</code> at the parent indent.</p>
+<p>A sequence is a list of items. Each item begins with <code>-</code> at the parent
+indent.</p>
 <pre><code class="language-yaml">- cat
 - dog
 </code></pre>
-<p>parses to <code>["cat", "dog"]</code>.</p>
+<p>→ <code>["cat", "dog"]</code></p>
+<p>Sequences become <code>list</code>s in Python.</p>
 <p>JSON-style arrays work too:</p>
 <pre><code class="language-yaml">[cat, dog]
 </code></pre>
+<p>→ same result</p>
 <p>Anything belonging to one of the sequence entries is indented at least
 one space past the dash:</p>
 <pre><code class="language-yaml">- name: cat
@@ -227,11 +232,12 @@ one space past the dash:</p>
 ]
 </code></pre>
 <h3 id="mappings-keyvalue-pairs">Mappings: key/value pairs<a class="headerlink" href="#mappings-keyvalue-pairs" title="Permanent link">&para;</a></h3>
-<p>Mappings are sets of <code>key: value</code> pairs at the same indent:</p>
+<p>A mapping is a set of <code>key: value</code> pairs at the same indent:</p>
 <pre><code class="language-yaml">foo: 1
 bar: true
 </code></pre>
-<p>parses to <code>{"foo": 1, "bar": True}</code>.</p>
+<p>→ <code>{"foo": 1, "bar": True}</code></p>
+<p>Mappings become <code>dict</code>s in Python.</p>
 <p>A key at its indent owns anything indented more:</p>
 <pre><code class="language-yaml">settings:
   debug: true
@@ -241,10 +247,11 @@ bar: true
 <p>JSON-style objects work too:</p>
 <pre><code class="language-yaml">{a: true}
 </code></pre>
-<p>-&gt; <code>{"a": True}</code></p>
+<p>→ <code>{"a": True}</code></p>
 <h2 id="scalars">Scalars<a class="headerlink" href="#scalars" title="Permanent link">&para;</a></h2>
-<p>Everything that is not a collection is a scalar. Scalars can be block,
-quoted, or plain.</p>
+<p>All nodes that are not collections are scalars; these are the leaf
+values of a YAML document.</p>
+<p>Scalars can come in three forms: block, quoted, or plain.</p>
 <h3 id="block-scalars">Block scalars<a class="headerlink" href="#block-scalars" title="Permanent link">&para;</a></h3>
 <p><code>|</code> starts a <strong>literal</strong> block that keeps newlines; <code>&gt;</code> starts a
 <strong>folded</strong> block that joins lines with spaces (except blank/indented
@@ -253,25 +260,25 @@ lines keep breaks). Block scalars always become strings.</p>
   hello
   world
 </code></pre>
-<p>-&gt; <code>"hello\nworld\n"</code></p>
+<p>→ <code>"hello\nworld\n"</code></p>
 <pre><code class="language-yaml">&gt;
   hello
   world
 </code></pre>
-<p>-&gt; <code>"hello world\n"</code></p>
+<p>→ <code>"hello world\n"</code></p>
 <h3 id="quoted-scalars">Quoted scalars<a class="headerlink" href="#quoted-scalars" title="Permanent link">&para;</a></h3>
 <p>Quoted scalars always become strings. Double quotes interpret escapes
 (<code>\n</code>, <code>\t</code>, <code>\\</code>, <code>\"</code>). Single quotes are literal and do not interpret
 escapes, except for <code>''</code> which is parsed as a single <code>'</code>.</p>
 <pre><code class="language-yaml">[&quot;line\nbreak&quot;, &quot;quote: \&quot;here\&quot;&quot;]
 </code></pre>
-<p>-&gt; <code>["line\nbreak", 'quote: "here"']</code></p>
+<p>→ <code>["line\nbreak", 'quote: "here"']</code></p>
 <pre><code class="language-yaml">['line\nbreak', 'quote: ''here''']
 </code></pre>
-<p>-&gt; <code>["line\\nbreak", "quote: 'here'"]</code></p>
+<p>→ <code>["line\\nbreak", "quote: 'here'"]</code></p>
 <h3 id="plain-unquoted-scalars">Plain (unquoted) scalars<a class="headerlink" href="#plain-unquoted-scalars" title="Permanent link">&para;</a></h3>
-<p>Plain nodes can resolve to one of five types: string, int, float, bool,
-or null.</p>
+<p>Plain (unquoted) nodes can resolve to one of five types: string, int,
+float, bool, or null.</p>
 <ul>
 <li><code>true</code> / <code>false</code> -&gt; <code>True</code> / <code>False</code></li>
 <li><code>null</code>, <code>~</code>, or empty -&gt; <code>None</code></li>
@@ -282,7 +289,7 @@ or null.</p>
 </ul>
 <pre><code class="language-yaml">[true, 123, 4.5e2, 0x10, .inf, yes]
 </code></pre>
-<p>-&gt; <code>[True, 123, 450.0, 16, float("inf"), "yes"]</code></p>
+<p>→ <code>[True, 123, 450.0, 16, float("inf"), "yes"]</code></p>
 <h2 id="end-to-end-example">End-to-end example<a class="headerlink" href="#end-to-end-example" title="Permanent link">&para;</a></h2>
 <pre><code class="language-yaml">doc:
   pets:
@@ -303,7 +310,7 @@ or null.</p>
   plain: [yes, no]
   mixed: [won't simplify, 123, true]
 </code></pre>
-<p>Python result:</p>
+<p>Python result (<code>parse_yaml()</code> with defaults):</p>
 <pre><code class="language-python">{
     &quot;doc&quot;: {
         &quot;pets&quot;: [&quot;cat&quot;, &quot;dog&quot;],
@@ -325,13 +332,16 @@ or null.</p>
   spaces.</li>
 <li>All JSON is valid YAML.</li>
 <li>Sequences stay Python lists; there is no vector "simplification."</li>
+<li>Mapping (dict) key order is preserved on load and emit (in the order keys appear in
+  the YAML input, and in the insertion order of Python mappings you format).</li>
 <li>Block scalars (<code>|</code>, <code>&gt;</code>) always produce strings.</li>
 <li>Booleans are only <code>true</code>/<code>false</code>; <code>null</code> maps to <code>None</code>.</li>
 <li>Numbers can be signed, scientific, hex (<code>0x</code>), octal (<code>0o</code>), <code>.inf</code>,
   and <code>.nan</code>.</li>
 </ul>
-<p>These essentials cover most YAML you'll see. For tags, anchors, and
-non-string mapping keys, see the advanced guide.</p></div>
+<p>These essentials cover most YAML you’ll run into in practice. If you
+encounter tags, anchors, or non-string mapping keys, the advanced guide
+walks through those in detail.</p></div>
             </div>
         </div>
 

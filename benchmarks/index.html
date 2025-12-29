@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        <link rel="canonical" href="https://posit-dev.github.io/py-yaml12/benchmarks/">
+        <link rel="shortcut icon" href="../img/favicon.ico">
+        <title>Benchmarks and Performance - yaml12</title>
+        <link href="../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../css/fontawesome.min.css" rel="stylesheet">
+        <link href="../css/brands.min.css" rel="stylesheet">
+        <link href="../css/solid.min.css" rel="stylesheet">
+        <link href="../css/v4-font-face.min.css" rel="stylesheet">
+        <link href="../css/base.css" rel="stylesheet">
+        <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
+        <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <link href="../extra.css" rel="stylesheet">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+        <script>hljs.highlightAll();</script> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="..">yaml12</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#navbar-collapse" aria-controls="navbar-collapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="nav-item">
+                                <a href=".." class="nav-link">Overview</a>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle active" aria-current="page" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Guides</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../usage/" class="dropdown-item">YAML in 2 Minutes</a>
+</li>
+                                    
+<li>
+    <a href="../tags/" class="dropdown-item">Tags, Anchors, and Advanced YAML</a>
+</li>
+                                    
+<li>
+    <a href="./" class="dropdown-item active" aria-current="page">Benchmarks and Performance</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item dropdown">
+                                <a href="#" class="nav-link dropdown-toggle" role="button" data-bs-toggle="dropdown"  aria-expanded="false">Reference</a>
+                                <ul class="dropdown-menu">
+                                    
+<li>
+    <a href="../reference/" class="dropdown-item">Overview</a>
+</li>
+                                    
+<li>
+    <a href="../reference/parse_yaml/" class="dropdown-item">parse_yaml() and read_yaml()</a>
+</li>
+                                    
+<li>
+    <a href="../reference/format_yaml/" class="dropdown-item">format_yaml() and write_yaml()</a>
+</li>
+                                </ul>
+                            </li>
+                            <li class="nav-item">
+                                <a href="../authors/" class="nav-link">Authors and Citation</a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="../contributing/" class="nav-link">Contributing</a>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ms-md-auto">
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" data-bs-toggle="modal" data-bs-target="#mkdocs_search_modal">
+                                <i class="fa fa-search"></i> Search
+                            </a>
+                        </li>
+                            <li class="nav-item">
+                                <a rel="prev" href="../tags/" class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" href="../reference/" class="nav-link">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="https://github.com/posit-dev/py-yaml12/edit/master/docs/benchmarks/index.md" class="nav-link">Edit on posit-dev/py-yaml12
+                                    </a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-bs-toggle="collapse" data-bs-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-body-tertiary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-bs-level="1"><a href="#benchmarks-and-performance" class="nav-link">Benchmarks and Performance</a>
+              <ul class="nav flex-column">
+            <li class="nav-item" data-bs-level="2"><a href="#goal" class="nav-link">Goal</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#reproduce" class="nav-link">Reproduce</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#setup" class="nav-link">Setup</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#generate-inputs" class="nav-link">Generate inputs</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#backends" class="nav-link">Backends</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#read-performance" class="nav-link">Read performance</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            <li class="nav-item" data-bs-level="2"><a href="#write-performance" class="nav-link">Write performance</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h1 id="benchmarks-and-performance">Benchmarks and Performance<a class="headerlink" href="#benchmarks-and-performance" title="Permanent link">&para;</a></h1>
+<h2 id="goal">Goal<a class="headerlink" href="#goal" title="Permanent link">&para;</a></h2>
+<p>Compare <code>yaml12</code> performance against:</p>
+<ul>
+<li><code>PyYAML</code> (defaults)</li>
+<li><code>PyYAML</code> (as fast as possible)</li>
+<li><code>ruyaml</code></li>
+</ul>
+<p>We intentionally avoid testing semantic differences between YAML 1.1 and
+1.2, as well as less-used YAML features like tags and streams. Instead,
+we focus on the simple default usage of each library.</p>
+<p>Operations:</p>
+<ul>
+<li><strong>read</strong>: YAML file → Python object</li>
+<li><strong>write</strong>: Python object → YAML file</li>
+</ul>
+<h2 id="reproduce">Reproduce<a class="headerlink" href="#reproduce" title="Permanent link">&para;</a></h2>
+<p>From the repo root:</p>
+<pre><code class="language-bash">make venv
+.venv/bin/python -m pip install py-yaml12 pyyaml ruyaml plotnine pandas jupyter ipykernel great-tables css-inline
+QUARTO_PYTHON=&quot;$PWD/.venv/bin/python3&quot; quarto render benchmarks.qmd
+</code></pre>
+<h2 id="setup">Setup<a class="headerlink" href="#setup" title="Permanent link">&para;</a></h2>
+<p>Tweak these constants for faster iterations.</p>
+<pre><code class="language-python">max_power = 15
+max_time_s = 1
+max_iters = 20_000
+</code></pre>
+<pre><code class="language-python">from __future__ import annotations
+
+from dataclasses import dataclass
+import math
+import os
+import tempfile
+import time
+from pathlib import Path
+from statistics import median
+from typing import Any, Callable, Literal
+
+import pandas as pd
+import ruyaml
+import yaml
+import yaml12
+from great_tables import GT, loc, style
+from IPython.display import HTML, display
+from plotnine import (
+    aes,
+    element_line,
+    geom_line,
+    geom_point,
+    ggplot,
+    labs,
+    scale_x_log10,
+    scale_y_log10,
+    theme,
+    theme_minimal,
+)
+</code></pre>
+<pre><code class="language-python">def fmt_bytes(n: float) -&gt; str:
+    units = [&quot;B&quot;, &quot;KiB&quot;, &quot;MiB&quot;, &quot;GiB&quot;, &quot;TiB&quot;]
+    n = float(n)
+    for unit in units:
+        if abs(n) &lt; 1024 or unit == units[-1]:
+            if unit == &quot;B&quot;:
+                return f&quot;{n:.0f} {unit}&quot;
+            s = f&quot;{n:.1f}&quot;.rstrip(&quot;0&quot;).rstrip(&quot;.&quot;)
+            return f&quot;{s} {unit}&quot;
+        n /= 1024
+    return f&quot;{n:.1f} {units[-1]}&quot;
+
+
+def round_sig(x: float, sig: int = 1) -&gt; float:
+    if x == 0:
+        return 0.0
+    return round(x, sig - 1 - int(math.floor(math.log10(abs(x)))))
+
+
+def fmt_bytes_rounded(n: float) -&gt; str:
+    units = [&quot;B&quot;, &quot;KiB&quot;, &quot;MiB&quot;, &quot;GiB&quot;, &quot;TiB&quot;]
+    n = float(n)
+    for idx, unit in enumerate(units):
+        if abs(n) &lt; 1024 or unit == units[-1]:
+            if unit == &quot;B&quot;:
+                return f&quot;{n:.0f} {unit}&quot;
+            rounded = round_sig(n, 1)
+            if rounded &gt;= 1000 and idx + 1 &lt; len(units):
+                n = n / 1024
+                unit = units[idx + 1]
+                rounded = round_sig(n, 1)
+            return f&quot;{rounded:.0f} {unit}&quot;
+        n /= 1024
+    return f&quot;{n:.1f} {units[-1]}&quot;
+
+
+def fmt_time_s(sec: float) -&gt; str:
+    sec = float(sec)
+    if sec &lt; 1e-6:
+        return f&quot;{sec * 1e9:.0f} ns&quot;
+    if sec &lt; 1e-3:
+        return f&quot;{sec * 1e6:.1f}&quot;.rstrip(&quot;0&quot;).rstrip(&quot;.&quot;) + &quot; µs&quot;
+    if sec &lt; 1.0:
+        return f&quot;{sec * 1e3:.1f}&quot;.rstrip(&quot;0&quot;).rstrip(&quot;.&quot;) + &quot; ms&quot;
+    return f&quot;{sec:.2f}&quot;.rstrip(&quot;0&quot;).rstrip(&quot;.&quot;) + &quot; s&quot;
+
+
+SIZE_TARGETS = tuple(10**power for power in range(4, 8))
+
+
+def nearest_sizes(
+    sizes: list[int],
+    targets: tuple[int, ...] = SIZE_TARGETS,
+) -&gt; list[tuple[int, int]]:
+    sizes = sorted(set(sizes))
+    picked: list[tuple[int, int]] = []
+    used: set[int] = set()
+    for target in targets:
+        size = min(sizes, key=lambda s: abs(s - target))
+        if size in used:
+            continue
+        used.add(size)
+        picked.append((size, target))
+    return picked
+
+
+@dataclass(frozen=True)
+class BenchResult:
+    samples_s: list[float]
+    calls: int
+    elapsed_s: float
+
+
+def bench_case(
+    fn,
+    *,
+    budget_s: float,
+    max_iters: int,
+) -&gt; BenchResult:
+    samples: list[float] = []
+    calls = 0
+    start = time.perf_counter()
+    while calls &lt; max_iters:
+        t0 = time.perf_counter()
+        fn()
+        t1 = time.perf_counter()
+        samples.append(t1 - t0)
+        calls += 1
+        if (t1 - start) &gt;= budget_s:
+            break
+
+    return BenchResult(samples_s=samples, calls=calls, elapsed_s=time.perf_counter() - start)
+
+
+@dataclass(frozen=True)
+class Backend:
+    name: str
+    read: Callable[[str], Any]
+    write: Callable[[Any], Any]
+
+
+def bench_op(
+    op: Literal[&quot;read&quot;, &quot;write&quot;],
+    *,
+    docs: list[dict],
+    backends: list[Backend],
+    budget_s: float,
+    max_iters: int,
+) -&gt; pd.DataFrame:
+    summary_rows: list[dict] = []
+
+    for doc in docs:
+        arg = doc[&quot;path&quot;] if op == &quot;read&quot; else doc[&quot;obj&quot;]
+        for backend in backends:
+            fn = backend.read if op == &quot;read&quot; else backend.write
+            result = bench_case(
+                lambda a=arg, f=fn: f(a),
+                budget_s=budget_s,
+                max_iters=max_iters,
+            )
+            summary_rows.append(
+                {
+                    &quot;op&quot;: op,
+                    &quot;backend&quot;: backend.name,
+                    &quot;n_nodes&quot;: doc[&quot;n_nodes&quot;],
+                    &quot;file_size&quot;: doc[&quot;file_size&quot;],
+                    &quot;median_s&quot;: median(result.samples_s) if result.samples_s else float(&quot;nan&quot;),
+                    &quot;n_samples&quot;: len(result.samples_s),
+                    &quot;calls&quot;: result.calls,
+                    &quot;elapsed_s&quot;: result.elapsed_s,
+                }
+            )
+
+    return pd.DataFrame(summary_rows).sort_values([&quot;file_size&quot;, &quot;backend&quot;])
+
+
+def ratio_table_df(
+    summary: pd.DataFrame,
+    backend_order: list[str],
+) -&gt; tuple[pd.DataFrame, list[str]]:
+    pivot = (
+        summary.pivot(index=&quot;backend&quot;, columns=&quot;file_size&quot;, values=&quot;median_s&quot;)
+        .reindex(backend_order)
+    )
+    picked = nearest_sizes(list(pivot.columns))
+    size_cols = [size for size, _ in picked]
+    labels = [fmt_bytes_rounded(target) for _, target in picked]
+
+    ratio = pivot[size_cols].div(pivot.loc[&quot;yaml12&quot;, size_cols], axis=1)
+    ratio.columns = labels
+    out = ratio.reset_index().rename(columns={&quot;backend&quot;: &quot;Backend&quot;})
+    return out, labels
+
+
+def plot_perf(
+    summary: pd.DataFrame,
+    *,
+    title: str,
+) -&gt; None:
+    size_min = float(summary[&quot;file_size&quot;].min())
+    size_max = float(summary[&quot;file_size&quot;].max())
+    exp_min = max(0, int(math.floor(math.log(size_min, 1024))))
+    exp_max = max(exp_min, int(math.ceil(math.log(size_max, 1024))))
+    candidates = [
+        (1024**power) * mult
+        for power in range(exp_min, exp_max + 1)
+        for mult in (1, 10, 100)
+    ]
+    forced_break = 10 * 1024**2
+    size_limit_max = max(size_max, forced_break)
+    if forced_break not in candidates:
+        candidates.append(forced_break)
+    breaks = [value for value in candidates if size_min &lt;= value &lt;= size_limit_max]
+    minor_candidates = [
+        (1024**power) * mult * minor
+        for power in range(exp_min, exp_max + 1)
+        for mult in (1, 10, 100)
+        for minor in range(2, 10)
+    ]
+    minor_breaks = sorted(
+        {
+            value
+            for value in minor_candidates
+            if size_min &lt;= value &lt;= size_limit_max
+        }
+        - set(breaks)
+    )
+    time_breaks = [1e-4, 1e-3, 1e-2, 1e-1, 1.0, 10.0]
+    time_minor_breaks = sorted(
+        {
+            (10**power) * mult
+            for power in range(-4, 2)
+            for mult in range(2, 10)
+            if 1e-4 &lt;= (10**power) * mult &lt;= 10.0
+        }
+        - set(time_breaks)
+    )
+
+    p = (
+        ggplot(summary, aes(x=&quot;file_size&quot;, y=&quot;median_s&quot;, color=&quot;backend&quot;))
+        + geom_point()
+        + geom_line()
+        + labs(title=title, x=&quot;File size&quot;, y=&quot;Median time&quot;)
+        + scale_x_log10(
+            breaks=breaks,
+            limits=(size_min, size_limit_max),
+            minor_breaks=minor_breaks,
+            labels=lambda xs: [fmt_bytes(x) for x in xs],
+        )
+        + scale_y_log10(
+            breaks=time_breaks,
+            minor_breaks=time_minor_breaks,
+            labels=lambda ys: [fmt_time_s(y) for y in ys],
+        )
+        + theme_minimal(base_size=12)
+        + theme(
+            panel_grid_major=element_line(color=&quot;#c4c4c4&quot;, size=0.6),
+            panel_grid_minor=element_line(color=&quot;#dddddd&quot;, size=0.4),
+        )
+    )
+    display(p)
+
+
+def render_ratio_table(
+    summary: pd.DataFrame,
+    *,
+    title: str,
+    subtitle: str,
+    backend_order: list[str],
+) -&gt; None:
+    table_df, vs_cols = ratio_table_df(summary, backend_order)
+    col_widths = {col: &quot;90px&quot; for col in vs_cols}
+    table = (
+        GT(table_df, rowname_col=&quot;Backend&quot;)
+        .tab_header(title=title, subtitle=subtitle)
+        .tab_options(
+            table_width=&quot;100%&quot;,
+            table_layout=&quot;fixed&quot;,
+            container_overflow_x=&quot;auto&quot;,
+            table_font_size=&quot;12px&quot;,
+            data_row_padding=&quot;4px&quot;,
+            column_labels_background_color=&quot;#f5f6fa&quot;,
+            column_labels_font_weight=&quot;600&quot;,
+            row_striping_background_color=&quot;#f7f7f7&quot;,
+            row_striping_include_stub=True,
+            row_striping_include_table_body=True,
+            quarto_disable_processing=True,
+        )
+        .cols_width(col_widths)
+        .cols_align(align=&quot;right&quot;, columns=vs_cols)
+        .tab_spanner(label=&quot;File size&quot;, columns=vs_cols)
+        .fmt_number(
+            columns=vs_cols,
+            decimals=1,
+            drop_trailing_zeros=True,
+            drop_trailing_dec_mark=True,
+            pattern=&quot;{x}x&quot;,
+        )
+        .tab_style(
+            style=[style.fill(&quot;#eef2ff&quot;), style.text(weight=&quot;bold&quot;)],
+            locations=loc.body(rows=[&quot;yaml12&quot;]),
+        )
+    )
+    display(HTML(table.as_raw_html(inline_css=True)))
+
+
+def run_section(
+    op: Literal[&quot;read&quot;, &quot;write&quot;],
+    *,
+    title: str,
+) -&gt; pd.DataFrame:
+    summary = bench_op(
+        op,
+        docs=docs,
+        backends=backends,
+        budget_s=max_time_s,
+        max_iters=max_iters,
+    )
+    plot_perf(summary, title=f&quot;{title} performance&quot;)
+    render_ratio_table(
+        summary,
+        title=f&quot;{title} summary&quot;,
+        subtitle=&quot;Relative time vs yaml12&quot;,
+        backend_order=backend_order,
+    )
+    return summary
+</code></pre>
+<h2 id="generate-inputs">Generate inputs<a class="headerlink" href="#generate-inputs" title="Permanent link">&para;</a></h2>
+<p>To benchmark, we create YAML files consisting of a repeating sequence of
+a small, fixed “mixed” node, repeated <code>2^(1:max_power)</code> times. This node
+is designed to exercise the YAML 1.2 core schema (every core type is
+represented). We generate these files with <code>yaml12.write_yaml()</code>.</p>
+<pre><code class="language-python">def make_mixed_node() -&gt; dict:
+    return {
+        &quot;str&quot;: [
+            &quot;Lorem ipsum dolor sit amet, vel accumsan vitae faucibus ultrices leo&quot;,
+            &quot;neque? Et cursus lacinia, ut, sit donec facilisi eu interdum. Dui&quot;,
+            &quot;ipsum, vitae ligula commodo convallis ac sed nunc. Ipsum at nec lacus&quot;,
+            &quot;eros suscipit vitae.&quot;,
+        ],
+        &quot;block_str&quot;: &quot;lorem \n ipsum \n dolor\n&quot;,
+        &quot;bools&quot;: [True, False],
+        &quot;ints&quot;: [123, -123],
+        &quot;floats&quot;: [123.456, -123.456],
+        &quot;null&quot;: None,
+    }
+
+
+max_power = int(max_power)
+max_iters = int(max_iters)
+</code></pre>
+<pre><code class="language-python">tmp_ctx = tempfile.TemporaryDirectory(prefix=&quot;yaml12-bench-&quot;)
+tmp_dir = Path(tmp_ctx.name)
+
+def make_yaml_doc(n_nodes: int) -&gt; dict:
+    path = tmp_dir / f&quot;mixed_{n_nodes}.yaml&quot;
+    obj = [make_mixed_node() for _ in range(n_nodes)]
+    yaml12.write_yaml(obj, path)
+    return {
+        &quot;n_nodes&quot;: n_nodes,
+        &quot;path&quot;: str(path),
+        &quot;file_size&quot;: path.stat().st_size,
+        &quot;obj&quot;: obj,
+    }
+
+
+docs = [make_yaml_doc(2**p) for p in range(1, max_power + 1)]
+</code></pre>
+<h2 id="backends">Backends<a class="headerlink" href="#backends" title="Permanent link">&para;</a></h2>
+<pre><code class="language-python">## read
+def _yaml12_read(path: str):
+    return yaml12.read_yaml(path)
+
+def _pyyaml_default_read(path: str):
+    with open(path, encoding=&quot;utf-8&quot;) as f:
+        return yaml.safe_load(f)
+
+def _pyyaml_fast_read(path: str):
+    with open(path, encoding=&quot;utf-8&quot;) as f:
+        return yaml.load(f, Loader=yaml.CSafeLoader)
+
+ruyaml_loader_emitter = ruyaml.YAML(typ=&quot;safe&quot;)
+def _ruyaml_read(path: str):
+    with open(path, encoding=&quot;utf-8&quot;) as f:
+        return ruyaml_loader_emitter.load(f)
+
+
+## write
+def _yaml12_write(obj):
+    return yaml12.write_yaml(obj, os.devnull)
+
+def _pyyaml_default_write(obj):
+    with open(os.devnull, &quot;w&quot;, encoding=&quot;utf-8&quot;) as f:
+        return yaml.safe_dump(obj, f)
+
+def _pyyaml_fast_write(obj):
+    with open(os.devnull, &quot;w&quot;, encoding=&quot;utf-8&quot;) as f:
+        return yaml.dump(obj, f, Dumper=yaml.CSafeDumper, sort_keys=False)
+
+def _ruyaml_write(obj):
+    with open(os.devnull, &quot;w&quot;, encoding=&quot;utf-8&quot;) as f:
+        return ruyaml_loader_emitter.dump(obj, f)
+
+
+backends = [
+    Backend(
+        name=&quot;yaml12&quot;,
+        read=_yaml12_read,
+        write=_yaml12_write,
+    ),
+    Backend(
+        name=&quot;pyyaml (default)&quot;,
+        read=_pyyaml_default_read,
+        write=_pyyaml_default_write,
+    ),
+    Backend(
+        name=&quot;pyyaml (fast: CSafeLoader/CSafeDumper)&quot;,
+        read=_pyyaml_fast_read,
+        write=_pyyaml_fast_write,
+    ),
+    Backend(
+        name=&quot;ruyaml&quot;,
+        read=_ruyaml_read,
+        write=_ruyaml_write,
+    ),
+]
+backend_order = [backend.name for backend in backends]
+</code></pre>
+<h2 id="read-performance">Read performance<a class="headerlink" href="#read-performance" title="Permanent link">&para;</a></h2>
+<pre><code class="language-python">read_summary = run_section(&quot;read&quot;, title=&quot;Read&quot;)
+</code></pre>
+<p><img src="benchmarks_files/figure-commonmark/cell-8-output-1.png"
+width="432" height="336" /></p>
+<div id="xobpeqklxh" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+&#10;<table class="gt_table" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', 'Fira Sans', 'Droid Sans', Arial, sans-serif;-webkit-font-smoothing: antialiased;-moz-osx-font-smoothing: grayscale;display: table;border-collapse: collapse;line-height: normal;margin-left: auto;margin-right: auto;color: #333333;font-size: 12px;font-weight: normal;font-style: normal;background-color: #FFFFFF;border-top-style: solid;border-top-width: 2px;border-top-color: #A8A8A8;border-right-style: none;border-right-width: 2px;border-right-color: #D3D3D3;border-bottom-style: solid;border-bottom-width: 2px;border-bottom-color: #A8A8A8;border-left-style: none;border-left-width: 2px;border-left-color: #D3D3D3;table-layout: fixed;width: 100%" data-quarto-bootstrap="false" data-quarto-disable-processing="true">
+<colgroup>
+  <col>
+  <col style="width:90px;">
+  <col style="width:90px;">
+  <col style="width:90px;">
+  <col style="width:90px;">
+</colgroup>
+&#10;<thead style="border-style: none;">
+&#10;  <tr class="gt_heading" style="border-style: none;background-color: #FFFFFF;text-align: center;border-bottom-color: #FFFFFF;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;">
+    <td class="gt_heading gt_title gt_font_normal" colspan="5" style="border-style: none;color: #333333;font-size: 125%;font-weight: normal;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;border-bottom-color: #FFFFFF;border-bottom-width: 0;background-color: #FFFFFF;text-align: center;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;">Read summary</td>
+  </tr>
+  <tr class="gt_heading" style="border-style: none;background-color: #FFFFFF;text-align: center;border-bottom-color: #FFFFFF;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;">
+    <td class="gt_heading gt_subtitle gt_font_normal gt_bottom_border" colspan="5" style="border-style: none;color: #333333;font-size: 85%;font-weight: normal;padding-top: 3px;padding-bottom: 5px;padding-left: 5px;padding-right: 5px;border-top-color: #FFFFFF;border-top-width: 0;background-color: #FFFFFF;text-align: center;border-bottom-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;border-bottom-style: solid;border-bottom-width: 2px;">Relative time vs yaml12</td>
+  </tr>
+<tr class="gt_col_headings gt_spanner_row" style="border-style: none;background-color: transparent;border-top-style: solid;border-top-width: 2px;border-top-color: #D3D3D3;border-bottom-style: hidden;border-bottom-width: 2px;border-bottom-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;">
+  <th class="gt_col_heading gt_columns_bottom_border gt_left" id="" rowspan="2" colspan="1" scope="col" style="border-style: none;color: #333333;background-color: #f5f6fa;font-size: 100%;font-weight: 600;text-transform: inherit;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: bottom;padding-top: 5px;padding-bottom: 5px;padding-left: 5px;padding-right: 5px;overflow-x: hidden;text-align: left;"></th>
+  <th class="gt_center gt_columns_top_border gt_column_spanner_outer" id="File-size" rowspan="1" colspan="4" scope="colgroup" style="border-style: none;color: #333333;background-color: #f5f6fa;font-size: 100%;font-weight: 600;text-transform: inherit;padding-top: 0;padding-bottom: 0;padding-left: 4px;text-align: center;padding-right: 0;">
+    <span class="gt_column_spanner" style="border-bottom-style: solid;border-bottom-width: 2px;border-bottom-color: #D3D3D3;vertical-align: bottom;padding-top: 5px;padding-bottom: 5px;overflow-x: hidden;display: inline-block;width: 100%;">File size</span>
+  </th>
+</tr>
+<tr class="gt_col_headings" style="border-style: none;background-color: transparent;border-top-style: solid;border-top-width: 2px;border-top-color: #D3D3D3;border-bottom-style: solid;border-bottom-width: 2px;border-bottom-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;">
+  <th class="gt_col_heading gt_columns_bottom_border gt_right" id="10-KiB" rowspan="1" colspan="1" scope="col" style="border-style: none;color: #333333;background-color: #f5f6fa;font-size: 100%;font-weight: 600;text-transform: inherit;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: bottom;padding-top: 5px;padding-bottom: 5px;padding-left: 5px;padding-right: 5px;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">10 KiB</th>
+  <th class="gt_col_heading gt_columns_bottom_border gt_right" id="100-KiB" rowspan="1" colspan="1" scope="col" style="border-style: none;color: #333333;background-color: #f5f6fa;font-size: 100%;font-weight: 600;text-transform: inherit;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: bottom;padding-top: 5px;padding-bottom: 5px;padding-left: 5px;padding-right: 5px;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">100 KiB</th>
+  <th class="gt_col_heading gt_columns_bottom_border gt_right" id="1-MiB" rowspan="1" colspan="1" scope="col" style="border-style: none;color: #333333;background-color: #f5f6fa;font-size: 100%;font-weight: 600;text-transform: inherit;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: bottom;padding-top: 5px;padding-bottom: 5px;padding-left: 5px;padding-right: 5px;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">1 MiB</th>
+  <th class="gt_col_heading gt_columns_bottom_border gt_right" id="10-MiB" rowspan="1" colspan="1" scope="col" style="border-style: none;color: #333333;background-color: #f5f6fa;font-size: 100%;font-weight: 600;text-transform: inherit;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: bottom;padding-top: 5px;padding-bottom: 5px;padding-left: 5px;padding-right: 5px;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">10 MiB</th>
+</tr>
+</thead>
+<tbody class="gt_table_body" style="border-style: none;border-top-style: solid;border-top-width: 2px;border-top-color: #D3D3D3;border-bottom-style: solid;border-bottom-width: 2px;border-bottom-color: #D3D3D3;">
+  <tr style="border-style: none;background-color: transparent;">
+    <th class="gt_row gt_left gt_stub" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: solid;border-right-width: 2px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #FFFFFF;font-size: 100%;font-weight: initial;text-transform: inherit;text-align: left;">yaml12</th>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;background-color: #eef2ff;font-weight: bold">1x</td>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;background-color: #eef2ff;font-weight: bold">1x</td>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;background-color: #eef2ff;font-weight: bold">1x</td>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;background-color: #eef2ff;font-weight: bold">1x</td>
+  </tr>
+  <tr style="border-style: none;background-color: transparent;">
+    <th class="gt_row gt_left gt_stub gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: solid;border-right-width: 2px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;font-size: 100%;font-weight: initial;text-transform: inherit;text-align: left;">pyyaml (default)</th>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">57.1x</td>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">65.5x</td>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">71.6x</td>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">70.6x</td>
+  </tr>
+  <tr style="border-style: none;background-color: transparent;">
+    <th class="gt_row gt_left gt_stub" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: solid;border-right-width: 2px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #FFFFFF;font-size: 100%;font-weight: initial;text-transform: inherit;text-align: left;">pyyaml (fast: CSafeLoader/CSafeDumper)</th>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">5.1x</td>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">6.2x</td>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">11.3x</td>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">10x</td>
+  </tr>
+  <tr style="border-style: none;background-color: transparent;">
+    <th class="gt_row gt_left gt_stub gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: solid;border-right-width: 2px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;font-size: 100%;font-weight: initial;text-transform: inherit;text-align: left;">ruyaml</th>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">94.9x</td>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">107.2x</td>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">105.7x</td>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">106.8x</td>
+  </tr>
+</tbody>
+&#10;
+</table>
+&#10;</div>
+
+<h2 id="write-performance">Write performance<a class="headerlink" href="#write-performance" title="Permanent link">&para;</a></h2>
+<pre><code class="language-python">write_summary = run_section(&quot;write&quot;, title=&quot;Write&quot;)
+</code></pre>
+<p><img src="benchmarks_files/figure-commonmark/cell-9-output-1.png"
+width="432" height="336" /></p>
+<div id="qgnmyuicuj" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+&#10;<table class="gt_table" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', 'Fira Sans', 'Droid Sans', Arial, sans-serif;-webkit-font-smoothing: antialiased;-moz-osx-font-smoothing: grayscale;display: table;border-collapse: collapse;line-height: normal;margin-left: auto;margin-right: auto;color: #333333;font-size: 12px;font-weight: normal;font-style: normal;background-color: #FFFFFF;border-top-style: solid;border-top-width: 2px;border-top-color: #A8A8A8;border-right-style: none;border-right-width: 2px;border-right-color: #D3D3D3;border-bottom-style: solid;border-bottom-width: 2px;border-bottom-color: #A8A8A8;border-left-style: none;border-left-width: 2px;border-left-color: #D3D3D3;table-layout: fixed;width: 100%" data-quarto-bootstrap="false" data-quarto-disable-processing="true">
+<colgroup>
+  <col>
+  <col style="width:90px;">
+  <col style="width:90px;">
+  <col style="width:90px;">
+  <col style="width:90px;">
+</colgroup>
+&#10;<thead style="border-style: none;">
+&#10;  <tr class="gt_heading" style="border-style: none;background-color: #FFFFFF;text-align: center;border-bottom-color: #FFFFFF;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;">
+    <td class="gt_heading gt_title gt_font_normal" colspan="5" style="border-style: none;color: #333333;font-size: 125%;font-weight: normal;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;border-bottom-color: #FFFFFF;border-bottom-width: 0;background-color: #FFFFFF;text-align: center;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;">Write summary</td>
+  </tr>
+  <tr class="gt_heading" style="border-style: none;background-color: #FFFFFF;text-align: center;border-bottom-color: #FFFFFF;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;">
+    <td class="gt_heading gt_subtitle gt_font_normal gt_bottom_border" colspan="5" style="border-style: none;color: #333333;font-size: 85%;font-weight: normal;padding-top: 3px;padding-bottom: 5px;padding-left: 5px;padding-right: 5px;border-top-color: #FFFFFF;border-top-width: 0;background-color: #FFFFFF;text-align: center;border-bottom-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;border-bottom-style: solid;border-bottom-width: 2px;">Relative time vs yaml12</td>
+  </tr>
+<tr class="gt_col_headings gt_spanner_row" style="border-style: none;background-color: transparent;border-top-style: solid;border-top-width: 2px;border-top-color: #D3D3D3;border-bottom-style: hidden;border-bottom-width: 2px;border-bottom-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;">
+  <th class="gt_col_heading gt_columns_bottom_border gt_left" id="" rowspan="2" colspan="1" scope="col" style="border-style: none;color: #333333;background-color: #f5f6fa;font-size: 100%;font-weight: 600;text-transform: inherit;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: bottom;padding-top: 5px;padding-bottom: 5px;padding-left: 5px;padding-right: 5px;overflow-x: hidden;text-align: left;"></th>
+  <th class="gt_center gt_columns_top_border gt_column_spanner_outer" id="File-size" rowspan="1" colspan="4" scope="colgroup" style="border-style: none;color: #333333;background-color: #f5f6fa;font-size: 100%;font-weight: 600;text-transform: inherit;padding-top: 0;padding-bottom: 0;padding-left: 4px;text-align: center;padding-right: 0;">
+    <span class="gt_column_spanner" style="border-bottom-style: solid;border-bottom-width: 2px;border-bottom-color: #D3D3D3;vertical-align: bottom;padding-top: 5px;padding-bottom: 5px;overflow-x: hidden;display: inline-block;width: 100%;">File size</span>
+  </th>
+</tr>
+<tr class="gt_col_headings" style="border-style: none;background-color: transparent;border-top-style: solid;border-top-width: 2px;border-top-color: #D3D3D3;border-bottom-style: solid;border-bottom-width: 2px;border-bottom-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;">
+  <th class="gt_col_heading gt_columns_bottom_border gt_right" id="10-KiB" rowspan="1" colspan="1" scope="col" style="border-style: none;color: #333333;background-color: #f5f6fa;font-size: 100%;font-weight: 600;text-transform: inherit;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: bottom;padding-top: 5px;padding-bottom: 5px;padding-left: 5px;padding-right: 5px;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">10 KiB</th>
+  <th class="gt_col_heading gt_columns_bottom_border gt_right" id="100-KiB" rowspan="1" colspan="1" scope="col" style="border-style: none;color: #333333;background-color: #f5f6fa;font-size: 100%;font-weight: 600;text-transform: inherit;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: bottom;padding-top: 5px;padding-bottom: 5px;padding-left: 5px;padding-right: 5px;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">100 KiB</th>
+  <th class="gt_col_heading gt_columns_bottom_border gt_right" id="1-MiB" rowspan="1" colspan="1" scope="col" style="border-style: none;color: #333333;background-color: #f5f6fa;font-size: 100%;font-weight: 600;text-transform: inherit;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: bottom;padding-top: 5px;padding-bottom: 5px;padding-left: 5px;padding-right: 5px;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">1 MiB</th>
+  <th class="gt_col_heading gt_columns_bottom_border gt_right" id="10-MiB" rowspan="1" colspan="1" scope="col" style="border-style: none;color: #333333;background-color: #f5f6fa;font-size: 100%;font-weight: 600;text-transform: inherit;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: bottom;padding-top: 5px;padding-bottom: 5px;padding-left: 5px;padding-right: 5px;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">10 MiB</th>
+</tr>
+</thead>
+<tbody class="gt_table_body" style="border-style: none;border-top-style: solid;border-top-width: 2px;border-top-color: #D3D3D3;border-bottom-style: solid;border-bottom-width: 2px;border-bottom-color: #D3D3D3;">
+  <tr style="border-style: none;background-color: transparent;">
+    <th class="gt_row gt_left gt_stub" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: solid;border-right-width: 2px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #FFFFFF;font-size: 100%;font-weight: initial;text-transform: inherit;text-align: left;">yaml12</th>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;background-color: #eef2ff;font-weight: bold">1x</td>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;background-color: #eef2ff;font-weight: bold">1x</td>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;background-color: #eef2ff;font-weight: bold">1x</td>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;background-color: #eef2ff;font-weight: bold">1x</td>
+  </tr>
+  <tr style="border-style: none;background-color: transparent;">
+    <th class="gt_row gt_left gt_stub gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: solid;border-right-width: 2px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;font-size: 100%;font-weight: initial;text-transform: inherit;text-align: left;">pyyaml (default)</th>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">86.8x</td>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">119.6x</td>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">137.6x</td>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">127.2x</td>
+  </tr>
+  <tr style="border-style: none;background-color: transparent;">
+    <th class="gt_row gt_left gt_stub" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: solid;border-right-width: 2px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #FFFFFF;font-size: 100%;font-weight: initial;text-transform: inherit;text-align: left;">pyyaml (fast: CSafeLoader/CSafeDumper)</th>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">12.6x</td>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">17.8x</td>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">19.4x</td>
+    <td class="gt_row gt_right" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;text-align: right;font-variant-numeric: tabular-nums;">26.5x</td>
+  </tr>
+  <tr style="border-style: none;background-color: transparent;">
+    <th class="gt_row gt_left gt_stub gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: solid;border-right-width: 2px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;font-size: 100%;font-weight: initial;text-transform: inherit;text-align: left;">ruyaml</th>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">121.4x</td>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">169.3x</td>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">183x</td>
+    <td class="gt_row gt_right gt_striped" style="border-style: none;padding-top: 4px;padding-bottom: 4px;padding-left: 5px;padding-right: 5px;margin: 10px;border-top-style: solid;border-top-width: 1px;border-top-color: #D3D3D3;border-left-style: none;border-left-width: 1px;border-left-color: #D3D3D3;border-right-style: none;border-right-width: 1px;border-right-color: #D3D3D3;vertical-align: middle;overflow-x: hidden;color: #333333;background-color: #f7f7f7;text-align: right;font-variant-numeric: tabular-nums;">174.4x</td>
+  </tr>
+</tbody>
+&#10;
+</table>
+&#10;</div></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script src="../js/bootstrap.bundle.min.js"></script>
+        <script>
+            var base_url = "..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../js/base.js"></script>
+        <script src="../search/main.js"></script>
+
+        <div class="modal" id="mkdocs_search_modal" tabindex="-1" role="dialog" aria-labelledby="searchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="searchModalLabel">Search</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>From here you can search these documents. Enter your search terms below.</p>
+                <form>
+                    <div class="form-group">
+                        <input type="search" class="form-control" placeholder="Search..." id="mkdocs-search-query" title="Type search term here">
+                    </div>
+                </form>
+                <div id="mkdocs-search-results" data-no-results-text="No results found"></div>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div><div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>

@@ -6,7 +6,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         
         
-        <link rel="canonical" href="https://t-kalinowski.github.io/py-yaml12/reference/format_yaml/">
+        <link rel="canonical" href="https://posit-dev.github.io/py-yaml12/reference/format_yaml/">
         <link rel="shortcut icon" href="../../img/favicon.ico">
         <title>format_yaml() and write_yaml() - yaml12</title>
         <link href="../../css/bootstrap.min.css" rel="stylesheet">
@@ -17,6 +17,7 @@
         <link href="../../css/base.css" rel="stylesheet">
         <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css" >
         <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github-dark.min.css" disabled>
+        <link href="../../extra.css" rel="stylesheet">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
         <script>hljs.highlightAll();</script> 
     </head>
@@ -47,6 +48,10 @@
                                     
 <li>
     <a href="../../tags/" class="dropdown-item">Tags, Anchors, and Advanced YAML</a>
+</li>
+                                    
+<li>
+    <a href="../../benchmarks/" class="dropdown-item">Benchmarks and Performance</a>
 </li>
                                 </ul>
                             </li>
@@ -92,7 +97,7 @@
                                 </a>
                             </li>
                             <li class="nav-item">
-                                <a href="https://github.com/t-kalinowski/py-yaml12/edit/master/docs/reference/format_yaml.md" class="nav-link">Edit on t-kalinowski/py-yaml12
+                                <a href="https://github.com/posit-dev/py-yaml12/edit/master/docs/reference/format_yaml.md" class="nav-link">Edit on posit-dev/py-yaml12
                                     </a>
                             </li>
                     </ul>
@@ -144,6 +149,8 @@ stream to a file or writer. Both functions honor <code>Yaml</code> tags on value
 and mapping keys; scalar core tags (<code>!!str</code>, <code>!!int</code>, <code>!!bool</code>,
 <code>!!float</code>, <code>!!null</code>, <code>!!seq</code>, <code>!!map</code>) are dropped on emit because they
 add no extra information.</p>
+<p>Mappings are emitted in insertion order (the order you inserted keys into the Python
+mapping).</p>
 <h2 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h2>
 <pre><code class="language-python">format_yaml(value, multi=False)
 
@@ -157,8 +164,9 @@ write_yaml(value, path=None, multi=False)
 <li>multi: When <code>True</code>, treat <code>value</code> as a list of YAML documents and
   encode a stream separated by <code>---</code> and terminated with <code>...</code>.</li>
 <li>path: Destination path (<code>str</code> or <code>os.PathLike</code>) or writable object
-  with <code>.write()</code>. When <code>None</code>, write to stdout. Writers are tried with
-  text first, then retried as bytes if text writes fail.</li>
+  with <code>.write()</code>. When <code>None</code>, write to stdout. Writers must accept
+  <code>str</code>; for binary sinks open the file in text mode or wrap the stream
+  with <code>io.TextIOWrapper(...)</code>.</li>
 </ul>
 <h2 id="returns">Returns<a class="headerlink" href="#returns" title="Permanent link">&para;</a></h2>
 <p><code>format_yaml()</code> returns a <code>str</code> containing YAML (ending with <code>...\n</code> for
