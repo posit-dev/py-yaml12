@@ -445,7 +445,7 @@ parsed = parse_yaml("""
 ---
 item: !<gizmo> foo
 """)
-assert parsed["item"].tag == "gizmo"
+parsed["item"].tag  # verbatim tag, not expanded
 ```
 
 ### Core schema tags
