@@ -1,11 +1,27 @@
 # Great Docs Configuration
-# See https://rich-iannone.github.io/great-docs/user-guide/03-configuration.html
+# See https://rich-iannone.github.io/great-docs/user-guide/configuration.html
 
 module: yaml12
+display_name: yaml12
 parser: google
 dynamic: false
 
+github_style: widget
+
+source:
+  branch: main
+
+authors:
+  - name: Tomasz Kalinowski
+    github: t-kalinowski
+
 reference:
+  - title: Classes
+    desc: Wrapper types for tagged nodes and unhashable mapping keys
+    contents:
+      - name: Yaml
+        members: false
+
   - title: Functions
     desc: Public functions for parsing and emitting YAML
     contents:
