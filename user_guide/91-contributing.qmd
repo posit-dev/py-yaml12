@@ -5,15 +5,30 @@ guide-section: "About"
 
 ## Build or serve the docs locally
 
-This project uses `great-docs` (Quarto) for documentation.
-Quarto executes Python chunks using the project `.venv` (configured in `docs/_environment`).
+This project uses [Great Docs](https://github.com/rich-iannone/great-docs) for documentation.
 
-From the project root:
+First install Great Docs:
 
 ```bash
-# Build docs into docs/_site/
-.venv/bin/great-docs build
+pip install git+https://github.com/rich-iannone/great-docs.git
+```
 
-# Serve with live reload
-.venv/bin/great-docs preview
+Then from the project root:
+
+```bash
+# Build docs into great-docs/_site/
+great-docs build
+
+# Preview with live reload
+great-docs preview
+```
+
+## Running tests
+
+From the repo root:
+
+```bash
+cargo fmt && cargo check && cargo test && cargo build && cargo clippy
+.venv/bin/pip install -e . --no-build-isolation
+.venv/bin/python -m pytest tests_py
 ```
