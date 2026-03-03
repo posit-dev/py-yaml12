@@ -3,10 +3,9 @@ title: "User Guide"
 guide-section: "Getting Started"
 ---
 
-This guide contains narrative documentation for `yaml12`.
+Welcome to the **yaml12** User Guide. This guide covers practical usage of the `yaml12` package, a YAML 1.2 parser and formatter for Python built with Rust for speed and correctness.
 
-- [YAML in 2 Minutes](01-yaml-in-2-minutes.qmd)
-- [Tags, Anchors, and Advanced YAML](02-tags-anchors-and-advanced-yaml.qmd)
-- [Reference](10-reference.qmd)
-- [Authors and Citation](90-authors-and-citation.qmd)
-- [Contributing](91-contributing.qmd)
+- [YAML in 2 Minutes](yaml-in-2-minutes.qmd) — a quick introduction to YAML for Python users
+- [Tags, Anchors, and Advanced YAML](tags-anchors-and-advanced-yaml.qmd) — custom tags, document streams, anchors, and more
+- [Authors and Citation](authors-and-citation.qmd) — attribution and citation info
+- [Contributing](contributing.qmd) — how to build the docs and contribute
