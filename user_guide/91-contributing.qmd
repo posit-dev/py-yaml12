@@ -1,0 +1,34 @@
+---
+title: "Contributing"
+guide-section: "About"
+---
+
+## Build or serve the docs locally
+
+This project uses [Great Docs](https://github.com/rich-iannone/great-docs) for documentation.
+
+First install Great Docs:
+
+```bash
+pip install git+https://github.com/rich-iannone/great-docs.git
+```
+
+Then from the project root:
+
+```bash
+# Build docs into great-docs/_site/
+great-docs build
+
+# Preview with live reload
+great-docs preview
+```
+
+## Running tests
+
+From the repo root:
+
+```bash
+cargo fmt && cargo check && cargo test && cargo build && cargo clippy
+.venv/bin/pip install -e . --no-build-isolation
+.venv/bin/python -m pytest tests_py
+```

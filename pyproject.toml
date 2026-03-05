@@ -33,5 +33,5 @@ dynamic = ["version"]
 [project.urls]
 Homepage = "https://github.com/posit-dev/py-yaml12"
 Documentation = "https://posit-dev.github.io/py-yaml12/"
-Source = "https://github.com/posit-dev/py-yaml12"
+Repository = "https://github.com/posit-dev/py-yaml12"
 Issues = "https://github.com/posit-dev/py-yaml12/issues"

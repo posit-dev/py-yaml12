@@ -77,3 +77,6 @@ site/
 
 /.quarto/
 **/*.quarto_ipynb
+
+# Great Docs build directory (ephemeral)
+great-docs/
