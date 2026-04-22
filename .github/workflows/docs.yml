@@ -29,6 +29,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install dist/*.whl
           python -m pip install great-docs jupyter
+          python -m pip install pandas pyyaml ruyaml plotnine great-tables
 
       - name: Set up Quarto
         uses: quarto-dev/quarto-actions/setup@v2
