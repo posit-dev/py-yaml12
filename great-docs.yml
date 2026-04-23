@@ -11,6 +11,10 @@ github_style: widget
 source:
   branch: main
 
+sections:
+  - title: Benchmarks
+    dir: benchmarks
+
 authors:
   - name: Tomasz Kalinowski
     github: t-kalinowski

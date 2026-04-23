@@ -1,9 +1,6 @@
 ---
 title: "Benchmarks and Performance"
-format: gfm
-output-file: "index.md"
 execute:
-  fig-path: "benchmarks_files/"
   echo: true
   warning: false
   cache: false
