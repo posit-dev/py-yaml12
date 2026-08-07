@@ -36,8 +36,8 @@ jobs:
           - runner: ubuntu-22.04
             target: ppc64le
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: 3.x
       - name: Build wheels
@@ -56,7 +56,7 @@ jobs:
           # `--find-interpreter` may build PyPy wheels too; only install CPython wheels here.
           python -m pip install dist/*cp*.whl
           python -m pytest tests_py
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: ${{ matrix.platform.target == 'x86_64' }}
         with:
           python-version: pypy-3.11
@@ -73,7 +73,7 @@ jobs:
           python -m pip install dist/*pp*.whl
           python -m pytest tests_py -k "not typechecks"
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-linux-${{ matrix.platform.target }}
           path: dist
@@ -92,8 +92,8 @@ jobs:
           - runner: ubuntu-22.04
             target: armv7
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: 3.x
       - name: Build wheels
@@ -104,7 +104,7 @@ jobs:
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: musllinux_1_2
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-musllinux-${{ matrix.platform.target }}
           path: dist
@@ -123,8 +123,8 @@ jobs:
           - runner: windows-latest
             target: x86
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: 3.x
           architecture: ${{ matrix.platform.target }}
@@ -143,7 +143,7 @@ jobs:
           # `--find-interpreter` may build PyPy wheels too; only install CPython wheels here.
           python -m pip install dist/*cp*.whl
           python -m pytest tests_py
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: ${{ matrix.platform.target == 'x64' }}
         with:
           python-version: pypy-3.11
@@ -164,7 +164,7 @@ jobs:
           python -m pip install dist/*pp*.whl
           python -m pytest tests_py -k "not typechecks"
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-windows-${{ matrix.platform.target }}
           path: dist
@@ -177,11 +177,11 @@ jobs:
           - runner: macos-14
             target: aarch64
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: pypy-3.11
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: 3.x
       - name: Build wheels
@@ -198,7 +198,7 @@ jobs:
           # `--find-interpreter` may build PyPy wheels too; only install CPython wheels here.
           python -m pip install dist/*cp*.whl
           python -m pytest tests_py
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: pypy-3.11
       - name: Test PyPy wheel
@@ -213,7 +213,7 @@ jobs:
           python -m pip install dist/*pp*.whl
           python -m pytest tests_py -k "not typechecks"
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-macos-${{ matrix.platform.target }}
           path: dist
@@ -222,8 +222,8 @@ jobs:
     runs-on: ubuntu-22.04
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           # pyodide-build currently lags new CPython releases; pin to a supported version.
           python-version: "3.13"
@@ -234,12 +234,12 @@ jobs:
           echo EMSCRIPTEN_VERSION=$(pyodide config get emscripten_version) >> $GITHUB_ENV
           echo PYTHON_VERSION=$(pyodide config get python_version | cut -d '.' -f 1-2) >> $GITHUB_ENV
           pip uninstall -y pyodide-build
-      - uses: mymindstorm/setup-emsdk@v12
+      - uses: emscripten-core/setup-emsdk@v16
         with:
           version: ${{ env.EMSCRIPTEN_VERSION }}
           # Avoid `actions-cache-folder`: the action uses a shared cache key and can fail
           # with "Unable to reserve cache…" when multiple workflow runs race to save it.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install pyodide-build
@@ -251,7 +251,7 @@ jobs:
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           rust-toolchain: nightly
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wasm-wheels
           path: dist
@@ -260,14 +260,14 @@ jobs:
   sdist:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
           command: sdist
           args: --out dist
       - name: Upload sdist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wheels-sdist
           path: dist
@@ -286,9 +286,9 @@ jobs:
       # Used to generate artifact attestation
       attestations: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
       - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: 'wheels-*/*'
       - name: Publish to PyPI
