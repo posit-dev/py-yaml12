@@ -158,7 +158,7 @@ Online docs: https://posit-dev.github.io/py-yaml12/
 To build or serve the docs locally:
 
 ```bash
-pip install git+https://github.com/rich-iannone/great-docs.git
+pip install great-docs
 great-docs build       # or: great-docs preview
 ```
 
