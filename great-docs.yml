@@ -1,5 +1,5 @@
 # Great Docs Configuration
-# See https://rich-iannone.github.io/great-docs/user-guide/configuration.html
+# See https://posit-dev.github.io/great-docs/user-guide/configuration.html
 
 module: yaml12
 display_name: yaml12
