@@ -1,3 +1,6 @@
+mod emitter;
+
+use crate::emitter::YamlEmitter;
 use pyo3::exceptions::{PyAttributeError, PyIOError, PyTypeError, PyValueError};
 use pyo3::ffi;
 use pyo3::prelude::*;
@@ -8,7 +11,7 @@ use pyo3::types::{
 };
 use pyo3::Bound;
 use pyo3::IntoPyObjectExt;
-use saphyr::{Mapping, Scalar, Tag, Yaml, YamlEmitter};
+use saphyr::{Mapping, Scalar, Tag, Yaml};
 use saphyr_parser::{Parser, ScalarStyle};
 use std::borrow::Cow;
 use std::cell::{RefCell, UnsafeCell};
@@ -16,7 +19,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
 use std::mem;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 type Result<T> = PyResult<T>;
 type BuiltinTypes = (Py<PyAny>, Py<PyAny>, Py<PyAny>, Py<PyAny>);
@@ -24,6 +27,7 @@ type BuiltinTypes = (Py<PyAny>, Py<PyAny>, Py<PyAny>, Py<PyAny>);
 static ABC_TYPES: PyOnceLock<(Py<PyAny>, Py<PyAny>)> = PyOnceLock::new();
 static BUILTIN_TYPES: PyOnceLock<BuiltinTypes> = PyOnceLock::new();
 static BUILTINS_ID: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
+static EXPANDUSER: PyOnceLock<Py<PyAny>> = PyOnceLock::new();
 const GIL_RELEASE_MIN_PARSE_LEN: usize = 2048;
 const GIL_RELEASE_MIN_EMIT_DOCS: usize = 4;
 const GIL_RELEASE_MIN_EMIT_COLLECTION_LEN: usize = 32;
@@ -48,7 +52,7 @@ fn unexpected_item_description(obj: &Bound<'_, PyAny>) -> String {
 
 fn pathlike_to_pathbuf(obj: &Bound<'_, PyAny>) -> Result<Option<PathBuf>> {
     match obj.extract::<PathBuf>() {
-        Ok(path) => Ok(Some(path)),
+        Ok(path) => Ok(Some(expand_user_path(obj, path)?)),
         Err(err) => {
             if err.is_instance_of::<PyTypeError>(obj.py()) {
                 Ok(None)
@@ -57,6 +61,21 @@ fn pathlike_to_pathbuf(obj: &Bound<'_, PyAny>) -> Result<Option<PathBuf>> {
             }
         }
     }
+}
+
+fn expand_user_path(obj: &Bound<'_, PyAny>, path: PathBuf) -> Result<PathBuf> {
+    if path.as_os_str().as_encoded_bytes().first() != Some(&b'~') {
+        return Ok(path);
+    }
+
+    let py = obj.py();
+    let expanduser = EXPANDUSER.get_or_try_init(py, || -> Result<_> {
+        Ok(PyModule::import(py, "os")?
+            .getattr("path")?
+            .getattr("expanduser")?
+            .unbind())
+    })?;
+    expanduser.bind(py).call1((obj,))?.extract()
 }
 
 struct HandlerRegistry {
@@ -650,7 +669,7 @@ fn parse_yaml(
 /// Read a YAML file from `path` and parse it.
 ///
 /// Args:
-///     path (str | os.PathLike | object with .read): Filesystem path or readable object whose `.read()` returns str/bytes.
+///     path (str | os.PathLike | object with .read): Filesystem path or readable object whose `.read()` returns str/bytes. Filesystem paths beginning with `~` are expanded using `os.path.expanduser()`.
 ///     multi (bool): Return a list of documents when true; otherwise a single document or None for empty input.
 ///     handlers (dict[str, Callable] | None): Optional tag handlers for values and keys; matching handlers receive the parsed value.
 ///
@@ -682,6 +701,14 @@ fn read_yaml(
     let bound = path.bind(py);
     if let Ok(s) = bound.cast::<PyString>() {
         let path_str = s.to_str()?;
+        if path_str.as_bytes().first() == Some(&b'~') {
+            let path_buf = expand_user_path(bound, PathBuf::from(path_str))?;
+            let contents = py.detach(|| fs::read_to_string(&path_buf)).map_err(|err| {
+                PyIOError::new_err(format!("failed to read `{}`: {err}", path_buf.display()))
+            })?;
+            let docs = load_yaml_documents(py, &contents, multi)?;
+            return docs_to_python(py, docs, multi, handlers);
+        }
         let contents = py
             .detach(|| fs::read_to_string(path_str))
             .map_err(|err| PyIOError::new_err(format!("failed to read `{path_str}`: {err}")))?;
@@ -732,29 +759,60 @@ fn read_yaml(
     ))
 }
 
-#[pyfunction(signature = (value, multi=false))]
+fn width_arg(width: f64) -> Result<Option<usize>> {
+    if width.is_nan() || width < 1.0 {
+        return Err(PyValueError::new_err(
+            "`width` must be a number >= 1, or inf",
+        ));
+    }
+    if width.is_infinite() {
+        Ok(None)
+    } else {
+        Ok(Some(width.floor() as usize))
+    }
+}
+
+fn write_yaml_file(path: &Path, output: &str, append: bool) -> io::Result<()> {
+    if append {
+        fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?
+            .write_all(output.as_bytes())
+    } else {
+        fs::write(path, output)
+    }
+}
+
+#[pyfunction(
+    signature = (value, multi=false, width=80.0),
+    text_signature = "(value, multi=False, width=80)"
+)]
 /// Serialize a Python value to a YAML string.
 ///
 /// Args:
 ///     value (object): Python value or Yaml to serialize; for `multi` the value must be a sequence of documents.
 ///     multi (bool): Emit a multi-document stream when true; otherwise a single document.
+///     width (float): Target maximum line width. Positive infinity disables wrapping.
 ///
 /// Returns:
 ///     str: YAML text; multi-document streams end with `...`.
 ///
 /// Raises:
 ///     TypeError: When `multi` is true and value is not a sequence, or unsupported types are provided.
+///     ValueError: When `width` is less than one or NaN.
 ///
 /// Examples:
 ///     >>> format_yaml({'foo': 1})
 ///     'foo: 1'
 ///     >>> format_yaml(['first', 'second'], multi=True).endswith('...\n')
 ///     True
-fn format_yaml(py: Python<'_>, value: Py<PyAny>, multi: bool) -> Result<Py<PyAny>> {
+fn format_yaml(py: Python<'_>, value: Py<PyAny>, multi: bool, width: f64) -> Result<Py<PyAny>> {
+    let width = width_arg(width)?;
     let bound = value.bind(py);
     let arena = PyStringArena::new();
     let yaml = py_to_yaml(py, bound, false, &arena)?;
-    let mut output = format_yaml_impl(py, &yaml, multi)?;
+    let mut output = format_yaml_impl(py, &yaml, multi, width)?;
     if multi {
         output.push_str("...\n");
         return Ok(PyString::new(py, output.as_str()).unbind().into_any());
@@ -763,13 +821,18 @@ fn format_yaml(py: Python<'_>, value: Py<PyAny>, multi: bool) -> Result<Py<PyAny
     Ok(PyString::new(py, body).unbind().into_any())
 }
 
-#[pyfunction(signature = (value, path=None, multi=false))]
+#[pyfunction(
+    signature = (value, path=None, multi=false, append=false, width=80.0),
+    text_signature = "(value, path=None, multi=False, append=False, width=80)"
+)]
 /// Write a Python value to YAML at `path` or stdout.
 ///
 /// Args:
 ///     value (object): Python value or Yaml to serialize; for `multi` the value must be a sequence of documents.
-///     path (str | os.PathLike | text file-like | None): Destination path or object with `.write(str)`; when None the YAML is written to stdout.
+///     path (str | os.PathLike | text file-like | None): Destination path or object with `.write(str)`; when None the YAML is written to stdout. Filesystem paths beginning with `~` are expanded using `os.path.expanduser()`.
 ///     multi (bool): Emit a multi-document stream when true; otherwise a single document.
+///     append (bool): Append complete YAML documents to a filesystem path instead of replacing it.
+///     width (float): Target maximum line width. Positive infinity disables wrapping.
 ///
 /// Returns:
 ///     None
@@ -777,6 +840,7 @@ fn format_yaml(py: Python<'_>, value: Py<PyAny>, multi: bool) -> Result<Py<PyAny
 /// Raises:
 ///     IOError: When writing to the file or stdout fails.
 ///     TypeError: When `multi` is true and value is not a sequence, or unsupported types are provided.
+///     ValueError: When `width` is less than one or NaN.
 ///
 /// Examples:
 ///     >>> write_yaml({'foo': 1}, path='out.yml')
@@ -788,11 +852,14 @@ fn write_yaml(
     value: Py<PyAny>,
     path: Option<Py<PyAny>>,
     multi: bool,
+    append: bool,
+    width: f64,
 ) -> Result<()> {
+    let width = width_arg(width)?;
     let bound = value.bind(py);
     let arena = PyStringArena::new();
     let yaml = py_to_yaml(py, bound, false, &arena)?;
-    let mut output = format_yaml_impl(py, &yaml, multi)?;
+    let mut output = format_yaml_impl(py, &yaml, multi, width)?;
     if multi {
         output.push_str("...\n");
     } else {
@@ -811,15 +878,24 @@ fn write_yaml(
 
     if let Ok(path_str) = bound_path.cast::<PyString>() {
         let p = path_str.to_str()?;
-        py.detach(|| fs::write(p, &output))
+        if p.as_bytes().first() == Some(&b'~') {
+            let path_buf = expand_user_path(bound_path, PathBuf::from(p))?;
+            py.detach(|| write_yaml_file(&path_buf, &output, append))
+                .map_err(|err| {
+                    PyIOError::new_err(format!("failed to write `{}`: {err}", path_buf.display()))
+                })?;
+            return Ok(());
+        }
+        py.detach(|| write_yaml_file(Path::new(p), &output, append))
             .map_err(|err| PyIOError::new_err(format!("failed to write `{p}`: {err}")))?;
         return Ok(());
     }
 
     if let Some(path_buf) = pathlike_to_pathbuf(bound_path)? {
-        py.detach(|| fs::write(&path_buf, &output)).map_err(|err| {
-            PyIOError::new_err(format!("failed to write `{}`: {err}", path_buf.display()))
-        })?;
+        py.detach(|| write_yaml_file(&path_buf, &output, append))
+            .map_err(|err| {
+                PyIOError::new_err(format!("failed to write `{}`: {err}", path_buf.display()))
+            })?;
         return Ok(());
     }
 
@@ -1285,6 +1361,7 @@ fn render_tag(tag: &Tag) -> String {
 fn emit_yaml_documents(
     docs: &[Yaml<'_>],
     multi: bool,
+    width: Option<usize>,
 ) -> std::result::Result<String, saphyr::EmitError> {
     if docs.is_empty() {
         return Ok(String::new());
@@ -1292,6 +1369,7 @@ fn emit_yaml_documents(
     let mut output = String::new();
     let mut emitter = YamlEmitter::new(&mut output);
     emitter.multiline_strings(true);
+    emitter.string_wrap_width(width);
     if multi {
         emitter.dump_docs(docs)?;
     } else {
@@ -1300,12 +1378,17 @@ fn emit_yaml_documents(
     Ok(output)
 }
 
-fn format_yaml_impl<'a>(py: Python<'_>, value: &Yaml<'a>, multi: bool) -> Result<String> {
+fn format_yaml_impl<'a>(
+    py: Python<'_>,
+    value: &Yaml<'a>,
+    multi: bool,
+    width: Option<usize>,
+) -> Result<String> {
     let emit = |docs: &[Yaml<'a>], multi: bool| {
         if should_release_gil_for_emit(value, multi) {
-            py.detach(|| emit_yaml_documents(docs, multi))
+            py.detach(|| emit_yaml_documents(docs, multi, width))
         } else {
-            emit_yaml_documents(docs, multi)
+            emit_yaml_documents(docs, multi, width)
         }
     };
     if multi {
@@ -1437,26 +1520,7 @@ fn write_to_stdout_fallback(py: Python<'_>, content: &str) -> Result<()> {
 }
 
 fn float_to_yaml_scalar(f: f64) -> Yaml<'static> {
-    if f.is_nan() {
-        return Yaml::Representation(Cow::Borrowed(".nan"), ScalarStyle::Plain, None);
-    }
-    if f.is_infinite() {
-        return if f.is_sign_negative() {
-            Yaml::Representation(Cow::Borrowed("-.inf"), ScalarStyle::Plain, None)
-        } else {
-            Yaml::Representation(Cow::Borrowed(".inf"), ScalarStyle::Plain, None)
-        };
-    }
-    if f.fract() != 0.0 {
-        return Yaml::Value(Scalar::FloatingPoint(f.into()));
-    }
-
-    // Rust prints `1.0` as `1`, which YAML 1.2 resolves as an int; ensure the scalar parses as a float.
-    let mut rendered = f.to_string();
-    if !rendered.contains('.') && !rendered.contains('e') && !rendered.contains('E') {
-        rendered.push_str(".0");
-    }
-    Yaml::Representation(Cow::Owned(rendered), ScalarStyle::Plain, None)
+    Yaml::Value(Scalar::FloatingPoint(f.into()))
 }
 
 struct PyStringArena {
