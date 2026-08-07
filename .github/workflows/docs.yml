@@ -42,6 +42,12 @@ jobs:
         with:
           name: docs-html
           path: great-docs/_site
+          include-hidden-files: true
+
+      - name: Show preview instructions
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "::notice title=Preview these docs locally::preview_dir=\"\$(mktemp -d)\" && gh run download ${{ github.run_id }} --repo ${{ github.repository }} --name docs-html --dir \"\$preview_dir\" && python -m http.server --bind 127.0.0.1 --directory \"\$preview_dir\""
 
   publish-docs:
     name: "Publish Docs"
@@ -64,48 +70,8 @@ jobs:
         uses: actions/upload-pages-artifact@v5
         with:
           path: great-docs/_site
+          include-hidden-files: true
 
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
-
-  preview-docs:
-    name: "Preview Docs"
-    runs-on: ubuntu-latest
-    needs: "build-docs"
-    if: github.event_name == 'pull_request'
-    permissions:
-      deployments: write
-      pull-requests: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          name: docs-html
-          path: great-docs/_site
-
-      # Start deployment
-      - name: Configure pull release name
-        if: ${{ github.event_name == 'pull_request' }}
-        run: |
-          echo "RELEASE_NAME=pr-${PR_NUMBER}" >> $GITHUB_ENV
-        env:
-          PR_NUMBER: ${{ github.event.number }}
-
-      - name: Configure branch release name
-        if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          # use branch name, but replace slashes. E.g. feat/a -> feat-a
-          echo "RELEASE_NAME=${GITHUB_REF_NAME/\//-}" >> $GITHUB_ENV
-
-      # Deploy
-      - name: Create Github Deployment
-        uses: bobheadxi/deployments@v1
-        id: deployment
-        if: ${{ !github.event.pull_request.head.repo.fork }}
-        with:
-          step: start
-          token: ${{ secrets.GITHUB_TOKEN }}
-          env: ${{ env.RELEASE_NAME }}
-          ref: ${{ github.head_ref }}
-          transient: true
-          logs: "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
