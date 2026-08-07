@@ -4,6 +4,7 @@ import textwrap
 from pathlib import Path
 import io
 import contextlib
+import os
 import sys
 import pytest
 
@@ -354,7 +355,7 @@ def test_user_path_errors_report_the_expanded_path(
     with pytest.raises(OSError) as excinfo:
         yaml12.read_yaml("~/missing.yaml")
 
-    assert str(home / "missing.yaml") in str(excinfo.value)
+    assert os.path.expanduser("~/missing.yaml") in str(excinfo.value)
 
 
 def test_read_yaml_does_not_simplify_mixed_type_sequences(tmp_path: Path):
