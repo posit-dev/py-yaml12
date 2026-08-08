@@ -230,8 +230,18 @@ def test_write_yaml_width_controls_wrapping(tmp_path: Path):
     assert "body: alpha beta gamma delta epsilon" in path.read_text(encoding="utf-8")
     assert yaml12.read_yaml(path) == value
 
-    with pytest.raises(TypeError):
-        yaml12.write_yaml(value, path, width=float("inf"))
+    yaml12.write_yaml(value, path, width=20.0)
+
+    assert "body: >-\n" in path.read_text(encoding="utf-8")
+    assert yaml12.read_yaml(path) == value
+
+    for width in [float("inf"), float("-inf"), float("nan")]:
+        yaml12.write_yaml(value, path, width=width)
+
+        assert "body: alpha beta gamma delta epsilon" in path.read_text(
+            encoding="utf-8"
+        )
+        assert yaml12.read_yaml(path) == value
 
 
 def test_write_yaml_multi_empty_sequence_emits_empty_document(tmp_path: Path):

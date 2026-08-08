@@ -759,16 +759,33 @@ fn read_yaml(
     ))
 }
 
-fn width_arg(width: Option<i64>) -> Result<Option<usize>> {
-    let Some(width) = width else {
-        return Ok(None);
-    };
-    if width < 1 {
-        return Err(PyValueError::new_err(
-            "`width` must be an integer >= 1, or None",
-        ));
+enum WidthArg {
+    Integer(i64),
+    Float(f64),
+}
+
+impl FromPyObject<'_, '_> for WidthArg {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'_, '_, PyAny>) -> PyResult<Self> {
+        if obj.is_instance_of::<PyFloat>() {
+            Ok(Self::Float(obj.extract()?))
+        } else {
+            Ok(Self::Integer(obj.extract()?))
+        }
     }
-    Ok(Some(usize::try_from(width).unwrap_or(usize::MAX)))
+}
+
+fn width_arg(width: Option<WidthArg>) -> Result<Option<usize>> {
+    match width {
+        None => Ok(None),
+        Some(WidthArg::Integer(width)) if width >= 1 => {
+            Ok(Some(usize::try_from(width).unwrap_or(usize::MAX)))
+        }
+        Some(WidthArg::Float(width)) if !width.is_finite() => Ok(None),
+        Some(WidthArg::Float(width)) if width >= 1.0 => Ok(Some(width.floor() as usize)),
+        _ => Err(PyValueError::new_err("`width` must be >= 1, or None")),
+    }
 }
 
 fn write_yaml_file(path: &Path, output: &str, append: bool) -> io::Result<()> {
@@ -784,7 +801,7 @@ fn write_yaml_file(path: &Path, output: &str, append: bool) -> io::Result<()> {
 }
 
 #[pyfunction(
-    signature = (value, multi=false, width=Some(80)),
+    signature = (value, multi=false, width=Some(WidthArg::Integer(80))),
     text_signature = "(value, multi=False, width=80)"
 )]
 /// Serialize a Python value to a YAML string.
@@ -798,7 +815,7 @@ fn write_yaml_file(path: &Path, output: &str, append: bool) -> io::Result<()> {
 ///     str: YAML text; multi-document streams end with `...`.
 ///
 /// Raises:
-///     TypeError: When `width` is not an integer or None, `multi` is true and value is not a sequence, or unsupported types are provided.
+///     TypeError: When argument types are unsupported, or `multi` is true and value is not a sequence.
 ///     ValueError: When `width` is less than one.
 ///
 /// Examples:
@@ -810,7 +827,7 @@ fn format_yaml(
     py: Python<'_>,
     value: Py<PyAny>,
     multi: bool,
-    width: Option<i64>,
+    width: Option<WidthArg>,
 ) -> Result<Py<PyAny>> {
     let width = width_arg(width)?;
     let bound = value.bind(py);
@@ -826,7 +843,7 @@ fn format_yaml(
 }
 
 #[pyfunction(
-    signature = (value, path=None, multi=false, append=false, width=Some(80)),
+    signature = (value, path=None, multi=false, append=false, width=Some(WidthArg::Integer(80))),
     text_signature = "(value, path=None, multi=False, append=False, width=80)"
 )]
 /// Write a Python value to YAML at `path` or stdout.
@@ -843,7 +860,7 @@ fn format_yaml(
 ///
 /// Raises:
 ///     IOError: When writing to the file or stdout fails.
-///     TypeError: When `width` is not an integer or None, `multi` is true and value is not a sequence, or unsupported types are provided.
+///     TypeError: When argument types are unsupported, or `multi` is true and value is not a sequence.
 ///     ValueError: When `width` is less than one.
 ///
 /// Examples:
@@ -857,7 +874,7 @@ fn write_yaml(
     path: Option<Py<PyAny>>,
     multi: bool,
     append: bool,
-    width: Option<i64>,
+    width: Option<WidthArg>,
 ) -> Result<()> {
     let width = width_arg(width)?;
     let bound = value.bind(py);

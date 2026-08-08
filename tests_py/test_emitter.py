@@ -141,23 +141,44 @@ def test_format_yaml_width_controls_wrapping() -> None:
     assert encoded == "body: >-\n  alpha beta gamma\n  delta epsilon"
     assert yaml12.parse_yaml(encoded) == {"body": value}
 
+    encoded = yaml12.format_yaml({"body": value}, width=20.0)
+    assert encoded == "body: >-\n  alpha beta gamma\n  delta epsilon"
+
+    encoded = yaml12.format_yaml({"body": value}, width=20.9)
+    assert encoded == "body: >-\n  alpha beta gamma\n  delta epsilon"
+
     encoded = yaml12.format_yaml({"body": value}, width=None)
     assert encoded == "body: alpha beta gamma delta epsilon"
 
     encoded = yaml12.format_yaml({"body": value}, width=2**32)
     assert encoded == "body: alpha beta gamma delta epsilon"
 
+    encoded = yaml12.format_yaml({"body": value}, width=2**63 - 1)
+    assert encoded == "body: alpha beta gamma delta epsilon"
+
+    with pytest.raises(OverflowError):
+        yaml12.format_yaml({"body": value}, width=2**63)
+
 
 @pytest.mark.parametrize("width", [0, -1])
 def test_format_yaml_rejects_invalid_integer_widths(width: int) -> None:
-    with pytest.raises(ValueError, match="must be an integer >= 1, or None"):
+    with pytest.raises(ValueError, match="must be >= 1, or None"):
         yaml12.format_yaml({"key": "value"}, width=width)
 
 
-@pytest.mark.parametrize("width", [20.0, 20.9, math.inf, -math.inf, math.nan])
-def test_format_yaml_rejects_non_integer_widths(width: float) -> None:
-    with pytest.raises(TypeError):
+@pytest.mark.parametrize("width", [0.0, 0.9, -1.0])
+def test_format_yaml_rejects_invalid_float_widths(width: float) -> None:
+    with pytest.raises(ValueError, match="width"):
         yaml12.format_yaml({"key": "value"}, width=width)
+
+
+@pytest.mark.parametrize("width", [math.inf, -math.inf, math.nan])
+def test_format_yaml_non_finite_widths_disable_wrapping(width: float) -> None:
+    value = {"body": "alpha beta gamma delta epsilon"}
+
+    assert yaml12.format_yaml(value, width=width) == (
+        "body: alpha beta gamma delta epsilon"
+    )
 
 
 def test_format_yaml_preserves_paragraph_and_line_oriented_multiline_strings() -> None:
