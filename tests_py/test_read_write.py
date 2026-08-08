@@ -230,6 +230,9 @@ def test_write_yaml_width_controls_wrapping(tmp_path: Path):
     assert "body: alpha beta gamma delta epsilon" in path.read_text(encoding="utf-8")
     assert yaml12.read_yaml(path) == value
 
+    with pytest.raises(TypeError):
+        yaml12.write_yaml(value, path, width=float("inf"))
+
 
 def test_write_yaml_multi_empty_sequence_emits_empty_document(tmp_path: Path):
     path = tmp_path / "yaml12-empty-multi.yaml"

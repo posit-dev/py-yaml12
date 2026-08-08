@@ -92,6 +92,8 @@ import yaml12
 yaml12.parse_yaml(123)
 yaml12.read_yaml(123)
 yaml12.write_yaml({"a": 1}, path=123)
+yaml12.format_yaml({"a": 1}, width=20.0)
+yaml12.write_yaml({"a": 1}, width=float("inf"))
 """,
             encoding="utf-8",
         )
@@ -113,7 +115,8 @@ yaml12.write_yaml({"a": 1}, path=123)
             capture_output=True,
         )
         assert bad_proc.returncode != 0
-        assert "error:" in ((bad_proc.stdout or "") + (bad_proc.stderr or ""))
+        bad_output = (bad_proc.stdout or "") + (bad_proc.stderr or "")
+        assert bad_output.count("error:") >= 5
 
         # verify typing artifacts are installed alongside the extension
         import yaml12  # noqa: WPS433
@@ -167,4 +170,4 @@ yaml12.write_yaml({"a": 1}, path=123)
             capture_output=True,
         )
         data = json.loads(neg.stdout or "{}")
-        assert data.get("summary", {}).get("errorCount", 0) > 0
+        assert data.get("summary", {}).get("errorCount", 0) >= 5

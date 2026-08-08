@@ -759,20 +759,16 @@ fn read_yaml(
     ))
 }
 
-fn width_arg(width: Option<f64>) -> Result<Option<usize>> {
+fn width_arg(width: Option<i64>) -> Result<Option<usize>> {
     let Some(width) = width else {
         return Ok(None);
     };
-    if width.is_nan() || width < 1.0 {
+    if width < 1 {
         return Err(PyValueError::new_err(
-            "`width` must be a number >= 1, None, or inf",
+            "`width` must be an integer >= 1, or None",
         ));
     }
-    if width.is_infinite() {
-        Ok(None)
-    } else {
-        Ok(Some(width.floor() as usize))
-    }
+    Ok(Some(usize::try_from(width).unwrap_or(usize::MAX)))
 }
 
 fn write_yaml_file(path: &Path, output: &str, append: bool) -> io::Result<()> {
@@ -788,7 +784,7 @@ fn write_yaml_file(path: &Path, output: &str, append: bool) -> io::Result<()> {
 }
 
 #[pyfunction(
-    signature = (value, multi=false, width=Some(80.0)),
+    signature = (value, multi=false, width=Some(80)),
     text_signature = "(value, multi=False, width=80)"
 )]
 /// Serialize a Python value to a YAML string.
@@ -796,14 +792,14 @@ fn write_yaml_file(path: &Path, output: &str, append: bool) -> io::Result<()> {
 /// Args:
 ///     value (object): Python value or Yaml to serialize; for `multi` the value must be a sequence of documents.
 ///     multi (bool): Emit a multi-document stream when true; otherwise a single document.
-///     width (float | None): Target maximum line width. None or positive infinity disables wrapping.
+///     width (int | None): Target maximum line width. None disables wrapping.
 ///
 /// Returns:
 ///     str: YAML text; multi-document streams end with `...`.
 ///
 /// Raises:
-///     TypeError: When `multi` is true and value is not a sequence, or unsupported types are provided.
-///     ValueError: When `width` is less than one or NaN.
+///     TypeError: When `width` is not an integer or None, `multi` is true and value is not a sequence, or unsupported types are provided.
+///     ValueError: When `width` is less than one.
 ///
 /// Examples:
 ///     >>> format_yaml({'foo': 1})
@@ -814,7 +810,7 @@ fn format_yaml(
     py: Python<'_>,
     value: Py<PyAny>,
     multi: bool,
-    width: Option<f64>,
+    width: Option<i64>,
 ) -> Result<Py<PyAny>> {
     let width = width_arg(width)?;
     let bound = value.bind(py);
@@ -830,7 +826,7 @@ fn format_yaml(
 }
 
 #[pyfunction(
-    signature = (value, path=None, multi=false, append=false, width=Some(80.0)),
+    signature = (value, path=None, multi=false, append=false, width=Some(80)),
     text_signature = "(value, path=None, multi=False, append=False, width=80)"
 )]
 /// Write a Python value to YAML at `path` or stdout.
@@ -840,15 +836,15 @@ fn format_yaml(
 ///     path (str | os.PathLike | text file-like | None): Destination path or object with `.write(str)`; when None the YAML is written to stdout. Filesystem paths beginning with `~` are expanded using `os.path.expanduser()`.
 ///     multi (bool): Emit a multi-document stream when true; otherwise a single document.
 ///     append (bool): Append complete YAML documents to a filesystem path instead of replacing it.
-///     width (float | None): Target maximum line width. None or positive infinity disables wrapping.
+///     width (int | None): Target maximum line width. None disables wrapping.
 ///
 /// Returns:
 ///     None
 ///
 /// Raises:
 ///     IOError: When writing to the file or stdout fails.
-///     TypeError: When `multi` is true and value is not a sequence, or unsupported types are provided.
-///     ValueError: When `width` is less than one or NaN.
+///     TypeError: When `width` is not an integer or None, `multi` is true and value is not a sequence, or unsupported types are provided.
+///     ValueError: When `width` is less than one.
 ///
 /// Examples:
 ///     >>> write_yaml({'foo': 1}, path='out.yml')
@@ -861,7 +857,7 @@ fn write_yaml(
     path: Option<Py<PyAny>>,
     multi: bool,
     append: bool,
-    width: Option<f64>,
+    width: Option<i64>,
 ) -> Result<()> {
     let width = width_arg(width)?;
     let bound = value.bind(py);

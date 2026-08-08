@@ -10,12 +10,12 @@ import yaml12
 
 
 def assert_scalar_emission(value: str, expected: str) -> None:
-    encoded = yaml12.format_yaml(value, width=math.inf)
+    encoded = yaml12.format_yaml(value, width=None)
 
     assert encoded == expected
     assert yaml12.parse_yaml(encoded) == value
 
-    encoded_key = yaml12.format_yaml({value: 1}, width=math.inf)
+    encoded_key = yaml12.format_yaml({value: 1}, width=None)
     assert encoded_key == f"{expected}: 1"
     assert yaml12.parse_yaml(encoded_key) == {value: 1}
 
@@ -141,20 +141,22 @@ def test_format_yaml_width_controls_wrapping() -> None:
     assert encoded == "body: >-\n  alpha beta gamma\n  delta epsilon"
     assert yaml12.parse_yaml(encoded) == {"body": value}
 
-    encoded = yaml12.format_yaml({"body": value}, width=math.inf)
-    assert encoded == "body: alpha beta gamma delta epsilon"
-
     encoded = yaml12.format_yaml({"body": value}, width=None)
     assert encoded == "body: alpha beta gamma delta epsilon"
 
-    assert yaml12.format_yaml({"body": value}, width=20.9) == (
-        "body: >-\n  alpha beta gamma\n  delta epsilon"
-    )
+    encoded = yaml12.format_yaml({"body": value}, width=2**32)
+    assert encoded == "body: alpha beta gamma delta epsilon"
 
 
-@pytest.mark.parametrize("width", [0, -1, -math.inf, math.nan])
-def test_format_yaml_rejects_invalid_widths(width: float) -> None:
-    with pytest.raises(ValueError, match="must be a number >= 1, None, or inf"):
+@pytest.mark.parametrize("width", [0, -1])
+def test_format_yaml_rejects_invalid_integer_widths(width: int) -> None:
+    with pytest.raises(ValueError, match="must be an integer >= 1, or None"):
+        yaml12.format_yaml({"key": "value"}, width=width)
+
+
+@pytest.mark.parametrize("width", [20.0, 20.9, math.inf, -math.inf, math.nan])
+def test_format_yaml_rejects_non_integer_widths(width: float) -> None:
+    with pytest.raises(TypeError):
         yaml12.format_yaml({"key": "value"}, width=width)
 
 
@@ -200,7 +202,7 @@ def test_format_yaml_emits_empty_literal_lines_without_indentation() -> None:
 def test_format_yaml_indents_root_document_markers_in_literal_blocks() -> None:
     value = "foo\n---\nbar"
 
-    encoded = yaml12.format_yaml(value, width=math.inf)
+    encoded = yaml12.format_yaml(value, width=None)
 
     assert encoded == "|-\n  foo\n  ---\n  bar"
     assert yaml12.parse_yaml(encoded) == value
@@ -262,7 +264,7 @@ def test_format_yaml_generated_strings_round_trip() -> None:
         "\u00a0",
         "\u2028",
     ]
-    widths = [1, 5, 20, 80, math.inf]
+    widths = [1, 5, 20, 80, None]
 
     for i in range(2_000):
         value = "".join(rng.choice(tokens) for _ in range(rng.randrange(12)))
