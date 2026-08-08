@@ -4,6 +4,7 @@ import textwrap
 from pathlib import Path
 import io
 import contextlib
+import os
 import sys
 import pytest
 
@@ -198,6 +199,51 @@ def test_write_and_read_multi_document_streams(tmp_path: Path):
     assert yaml12.read_yaml(str(path), multi=True) == docs
 
 
+def test_write_yaml_appends_documents(tmp_path: Path):
+    path = tmp_path / "yaml12-append.yaml"
+    first = {"first": 1}
+    second = {"second": 2}
+    docs = [{"third": 3}, {"fourth": 4}]
+
+    yaml12.write_yaml(first, str(path), append=True)
+    yaml12.write_yaml(second, path, False, True)
+    yaml12.write_yaml(docs, path, multi=True, append=True)
+
+    assert yaml12.read_yaml(path, multi=True) == [first, second, *docs]
+
+    replacement = [{"replacement": 5}]
+    yaml12.write_yaml(replacement, path, multi=True)
+    assert yaml12.read_yaml(path, multi=True) == replacement
+
+
+def test_write_yaml_width_controls_wrapping(tmp_path: Path):
+    path = tmp_path / "yaml12-width.yaml"
+    value = {"body": "alpha beta gamma delta epsilon"}
+
+    yaml12.write_yaml(value, path, width=20)
+
+    assert "body: >-\n" in path.read_text(encoding="utf-8")
+    assert yaml12.read_yaml(path) == value
+
+    yaml12.write_yaml(value, path, width=None)
+
+    assert "body: alpha beta gamma delta epsilon" in path.read_text(encoding="utf-8")
+    assert yaml12.read_yaml(path) == value
+
+    yaml12.write_yaml(value, path, width=20.0)
+
+    assert "body: >-\n" in path.read_text(encoding="utf-8")
+    assert yaml12.read_yaml(path) == value
+
+    for width in [float("inf"), float("-inf"), float("nan")]:
+        yaml12.write_yaml(value, path, width=width)
+
+        assert "body: alpha beta gamma delta epsilon" in path.read_text(
+            encoding="utf-8"
+        )
+        assert yaml12.read_yaml(path) == value
+
+
 def test_write_yaml_multi_empty_sequence_emits_empty_document(tmp_path: Path):
     path = tmp_path / "yaml12-empty-multi.yaml"
 
@@ -296,6 +342,38 @@ def test_read_yaml_accepts_pathlike(tmp_path: Path):
 
     assert yaml12.read_yaml(path) == {"foo": 1}
     assert yaml12.read_yaml(PathLike()) == {"foo": 1}
+
+
+def test_read_and_write_yaml_expand_user_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    value = {"alpha": 1, "beta": "two"}
+
+    paths = ["~/string.yaml", Path("~/pathlike.yaml")]
+    for path in paths:
+        yaml12.write_yaml(value, path)
+
+        expanded = home / Path(path).name
+        assert expanded.exists()
+        assert yaml12.read_yaml(path) == value
+
+
+def test_user_path_errors_report_the_expanded_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+
+    with pytest.raises(OSError) as excinfo:
+        yaml12.read_yaml("~/missing.yaml")
+
+    assert os.path.expanduser("~/missing.yaml") in str(excinfo.value)
 
 
 def test_read_yaml_does_not_simplify_mixed_type_sequences(tmp_path: Path):

@@ -70,6 +70,12 @@ assert doc == {
 round_tripped = parse_yaml(format_yaml(doc))
 assert round_tripped == doc
 
+# Long strings wrap at 80 columns by default.
+narrow_yaml = format_yaml(doc, width=40)
+
+# None disables wrapping.
+unwrapped_yaml = format_yaml(doc, width=None)
+
 # Tagged values (advanced)
 from yaml12 import Yaml
 
@@ -79,6 +85,8 @@ assert tagged == Yaml(value="1 + 1", tag="!expr")
 
 ## Reading and writing files
 
+Filesystem paths beginning with `~` are expanded using `os.path.expanduser()`.
+
 ```python
 from yaml12 import read_yaml, write_yaml
 
@@ -87,6 +95,11 @@ value_out = {"alpha": 1, "nested": [True, None]}
 write_yaml(value_out, "my.yaml")
 value_in = read_yaml("my.yaml")
 assert value_in == value_out
+
+# Append another YAML document instead of replacing the file.
+next_value = {"beta": 2}
+write_yaml(next_value, "my.yaml", append=True)
+assert read_yaml("my.yaml", multi=True) == [value_out, next_value]
 
 # Multi-document streams
 docs_out = [{"foo": 1}, {"bar": [2, None]}]
