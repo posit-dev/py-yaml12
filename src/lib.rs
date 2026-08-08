@@ -759,10 +759,13 @@ fn read_yaml(
     ))
 }
 
-fn width_arg(width: f64) -> Result<Option<usize>> {
+fn width_arg(width: Option<f64>) -> Result<Option<usize>> {
+    let Some(width) = width else {
+        return Ok(None);
+    };
     if width.is_nan() || width < 1.0 {
         return Err(PyValueError::new_err(
-            "`width` must be a number >= 1, or inf",
+            "`width` must be a number >= 1, None, or inf",
         ));
     }
     if width.is_infinite() {
@@ -785,7 +788,7 @@ fn write_yaml_file(path: &Path, output: &str, append: bool) -> io::Result<()> {
 }
 
 #[pyfunction(
-    signature = (value, multi=false, width=80.0),
+    signature = (value, multi=false, width=Some(80.0)),
     text_signature = "(value, multi=False, width=80)"
 )]
 /// Serialize a Python value to a YAML string.
@@ -793,7 +796,7 @@ fn write_yaml_file(path: &Path, output: &str, append: bool) -> io::Result<()> {
 /// Args:
 ///     value (object): Python value or Yaml to serialize; for `multi` the value must be a sequence of documents.
 ///     multi (bool): Emit a multi-document stream when true; otherwise a single document.
-///     width (float): Target maximum line width. Positive infinity disables wrapping.
+///     width (float | None): Target maximum line width. None or positive infinity disables wrapping.
 ///
 /// Returns:
 ///     str: YAML text; multi-document streams end with `...`.
@@ -807,7 +810,12 @@ fn write_yaml_file(path: &Path, output: &str, append: bool) -> io::Result<()> {
 ///     'foo: 1'
 ///     >>> format_yaml(['first', 'second'], multi=True).endswith('...\n')
 ///     True
-fn format_yaml(py: Python<'_>, value: Py<PyAny>, multi: bool, width: f64) -> Result<Py<PyAny>> {
+fn format_yaml(
+    py: Python<'_>,
+    value: Py<PyAny>,
+    multi: bool,
+    width: Option<f64>,
+) -> Result<Py<PyAny>> {
     let width = width_arg(width)?;
     let bound = value.bind(py);
     let arena = PyStringArena::new();
@@ -822,7 +830,7 @@ fn format_yaml(py: Python<'_>, value: Py<PyAny>, multi: bool, width: f64) -> Res
 }
 
 #[pyfunction(
-    signature = (value, path=None, multi=false, append=false, width=80.0),
+    signature = (value, path=None, multi=false, append=false, width=Some(80.0)),
     text_signature = "(value, path=None, multi=False, append=False, width=80)"
 )]
 /// Write a Python value to YAML at `path` or stdout.
@@ -832,7 +840,7 @@ fn format_yaml(py: Python<'_>, value: Py<PyAny>, multi: bool, width: f64) -> Res
 ///     path (str | os.PathLike | text file-like | None): Destination path or object with `.write(str)`; when None the YAML is written to stdout. Filesystem paths beginning with `~` are expanded using `os.path.expanduser()`.
 ///     multi (bool): Emit a multi-document stream when true; otherwise a single document.
 ///     append (bool): Append complete YAML documents to a filesystem path instead of replacing it.
-///     width (float): Target maximum line width. Positive infinity disables wrapping.
+///     width (float | None): Target maximum line width. None or positive infinity disables wrapping.
 ///
 /// Returns:
 ///     None
@@ -853,7 +861,7 @@ fn write_yaml(
     path: Option<Py<PyAny>>,
     multi: bool,
     append: bool,
-    width: f64,
+    width: Option<f64>,
 ) -> Result<()> {
     let width = width_arg(width)?;
     let bound = value.bind(py);

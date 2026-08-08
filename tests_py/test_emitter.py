@@ -144,6 +144,9 @@ def test_format_yaml_width_controls_wrapping() -> None:
     encoded = yaml12.format_yaml({"body": value}, width=math.inf)
     assert encoded == "body: alpha beta gamma delta epsilon"
 
+    encoded = yaml12.format_yaml({"body": value}, width=None)
+    assert encoded == "body: alpha beta gamma delta epsilon"
+
     assert yaml12.format_yaml({"body": value}, width=20.9) == (
         "body: >-\n  alpha beta gamma\n  delta epsilon"
     )
@@ -151,7 +154,7 @@ def test_format_yaml_width_controls_wrapping() -> None:
 
 @pytest.mark.parametrize("width", [0, -1, -math.inf, math.nan])
 def test_format_yaml_rejects_invalid_widths(width: float) -> None:
-    with pytest.raises(ValueError, match="width"):
+    with pytest.raises(ValueError, match="must be a number >= 1, None, or inf"):
         yaml12.format_yaml({"key": "value"}, width=width)
 
 

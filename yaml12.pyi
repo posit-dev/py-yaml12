@@ -95,8 +95,8 @@ def write_yaml(
     path: str | PathLike[str] | _Writable | None = None,
     multi: bool = False,
     append: bool = False,
-    width: float = 80,
+    width: float | None = 80,
 ) -> None: ...
 
-def format_yaml(value: Any, multi: bool = False, width: float = 80) -> str: ...
+def format_yaml(value: Any, multi: bool = False, width: float | None = 80) -> str: ...
 __version__: str

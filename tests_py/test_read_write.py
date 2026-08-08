@@ -225,6 +225,11 @@ def test_write_yaml_width_controls_wrapping(tmp_path: Path):
     assert "body: >-\n" in path.read_text(encoding="utf-8")
     assert yaml12.read_yaml(path) == value
 
+    yaml12.write_yaml(value, path, width=None)
+
+    assert "body: alpha beta gamma delta epsilon" in path.read_text(encoding="utf-8")
+    assert yaml12.read_yaml(path) == value
+
 
 def test_write_yaml_multi_empty_sequence_emits_empty_document(tmp_path: Path):
     path = tmp_path / "yaml12-empty-multi.yaml"

@@ -1,6 +1,6 @@
 # yaml12 (development version)
 
-- `format_yaml()` and `write_yaml()` now wrap long strings at word boundaries. The new `width` argument defaults to 80 columns; pass `float("inf")` to disable wrapping.
+- `format_yaml()` and `write_yaml()` now wrap long strings at word boundaries. The new `width` argument defaults to 80 columns; pass `None` or `float("inf")` to disable wrapping.
 
 - YAML formatting now emits YAML 1.2-safe strings without unnecessary quotes, while still quoting strings that the core schema would resolve as another type. This includes arbitrary-sized decimal, octal, and hexadecimal integer strings.
 

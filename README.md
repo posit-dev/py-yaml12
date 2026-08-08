@@ -73,8 +73,8 @@ assert round_tripped == doc
 # Long strings wrap at 80 columns by default.
 narrow_yaml = format_yaml(doc, width=40)
 
-# Positive infinity disables wrapping.
-unwrapped_yaml = format_yaml(doc, width=float("inf"))
+# None disables wrapping; positive infinity is also accepted.
+unwrapped_yaml = format_yaml(doc, width=None)
 
 # Tagged values (advanced)
 from yaml12 import Yaml

@@ -76,6 +76,8 @@ class CustomTextWriter:
         return len(data)
 
 yaml12.write_yaml({"a": 1}, path=CustomTextWriter())
+yaml12.format_yaml({"a": 1}, width=None)
+yaml12.write_yaml({"a": 1}, path=p, width=None)
 """,
             encoding="utf-8",
         )
