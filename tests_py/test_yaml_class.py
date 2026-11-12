@@ -22,7 +22,7 @@ def test_yaml_is_not_a_dataclass() -> None:
 def test_yaml_has_docstring() -> None:
     doc = yaml12.Yaml.__doc__
     assert isinstance(doc, str)
-    assert "Tagged node" in doc
+    assert doc.startswith("A hashable wrapper for a value and an optional YAML tag.")
 
 
 def test_yaml_is_immutable_and_proxies_collections() -> None:

@@ -317,22 +317,25 @@ fn freeze_for_yaml_hash(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<Py<PyA
     }
 }
 
-/// Tagged node or hashable wrapper for unhashable mapping keys.
+/// A hashable wrapper for a value and an optional YAML tag.
 ///
-/// `parse_yaml()` and `read_yaml()` return a `Yaml` for a tagged node without a
-/// matching handler, and for a mapping key that Python cannot hash, such as a
-/// sequence or mapping. Wrap a value in `Yaml` to emit a tag with `format_yaml()`
+/// Wrap a value in `Yaml` to give it a tag when writing YAML with `format_yaml()`
 /// or `write_yaml()`, or to use a list or dict as a mapping key.
 ///
-/// Indexing, iteration, and `len()` pass through to a wrapped list or dict.
-/// Instances are immutable and hashable, and two instances are equal when their
-/// values and tags are equal.
+/// `parse_yaml()` and `read_yaml()` use `Yaml` for mapping keys that Python cannot
+/// hash. They also use it to preserve tags outside the YAML 1.2 core schema when
+/// no matching handler is supplied.
+///
+/// Indexing, iteration, and `len()` operate on the wrapped list or dict. The
+/// `value` and `tag` attributes are read-only. For lists and dicts, hashing and
+/// equality use the tag and the contents at construction, including dict item
+/// order.
 ///
 /// Args:
 ///     value (object): The wrapped value.
-///     tag (str | None): The YAML tag, or None for an untagged wrapper. Simple
-///         local tag names are normalized to `!name` form, so `"gizmo"` and
-///         `"!<gizmo>"` both become `"!gizmo"`.
+///     tag (str | None): The YAML tag, or `None` for an untagged value. Simple
+///         local tag names are stored with a leading `!`: both `"gizmo"` and
+///         `"!<gizmo>"` become `"!gizmo"`.
 ///
 /// Examples:
 ///     >>> Yaml("1 + x", "!expr")
@@ -423,7 +426,7 @@ impl YamlNode {
         self.value.clone_ref(py)
     }
 
-    /// The YAML tag in normalized form, or None for an untagged wrapper.
+    /// The YAML tag in normalized form, or `None` for an untagged value.
     #[getter]
     fn tag(&self, py: Python<'_>) -> Option<Py<PyString>> {
         self.tag.as_ref().map(|tag| tag.clone_ref(py))
