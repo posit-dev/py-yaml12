@@ -19,16 +19,40 @@ class _Writable(Protocol):
 
 @final
 class Yaml:
-    """Tagged node or hashable wrapper for unhashable mapping keys."""
+    """Tagged node or hashable wrapper for unhashable mapping keys.
 
-    def __new__(cls, value: Any, tag: str | None = ...) -> Yaml: ...
+    `parse_yaml()` and `read_yaml()` return a `Yaml` for a tagged node without a
+    matching handler, and for a mapping key that Python cannot hash, such as a
+    sequence or mapping. Wrap a value in `Yaml` to emit a tag with `format_yaml()`
+    or `write_yaml()`, or to use a list or dict as a mapping key.
+
+    Indexing, iteration, and `len()` pass through to a wrapped list or dict.
+    Instances are immutable and hashable, and two instances are equal when their
+    values and tags are equal.
+
+    Args:
+        value (object): The wrapped value.
+        tag (str | None): The YAML tag, or None for an untagged wrapper. Simple
+            local tag names are normalized to `!name` form, so `"gizmo"` and
+            `"!<gizmo>"` both become `"!gizmo"`.
+
+    Examples:
+        >>> Yaml("1 + x", "!expr")
+        Yaml(value='1 + x', tag='!expr')
+        >>> parse_yaml("? [a, b]\\n: 1")
+        {Yaml(['a', 'b']): 1}
+    """
+
+    def __new__(cls, value: Any, tag: str | None = None) -> Yaml: ...
     def __init__(self) -> None: ...
 
     @property
-    def value(self) -> Any: ...
+    def value(self) -> Any:
+        """The wrapped value."""
 
     @property
-    def tag(self) -> str | None: ...
+    def tag(self) -> str | None:
+        """The YAML tag in normalized form, or None for an untagged wrapper."""
 
     def __getitem__(self, key: Any, /) -> Any: ...
     def __iter__(self) -> Any: ...
