@@ -317,7 +317,7 @@ fn freeze_for_yaml_hash(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<Py<PyA
     }
 }
 
-/// `Yaml` serves two purposes:
+/// A wrapper for unhashable mapping keys and tagged YAML nodes.
 ///
 /// - Represent a `list` or `dict` as a mapping key. `parse_yaml()` and `read_yaml()`
 ///   wrap keys that Python cannot hash; you can also wrap a `list` or `dict` yourself.

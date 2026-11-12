@@ -19,7 +19,7 @@ class _Writable(Protocol):
 
 @final
 class Yaml:
-    """`Yaml` serves two purposes:
+    """A wrapper for unhashable mapping keys and tagged YAML nodes.
 
     - Represent a `list` or `dict` as a mapping key. `parse_yaml()` and `read_yaml()`
       wrap keys that Python cannot hash; you can also wrap a `list` or `dict` yourself.
