@@ -19,10 +19,10 @@ class _Writable(Protocol):
 
 @final
 class Yaml:
-    """A YAML value with an optional tag.
+    """A wrapper for unhashable mapping keys and tagged YAML nodes.
 
-    Wrap a value in `Yaml` to give it a tag when writing YAML with `format_yaml()`
-    or `write_yaml()`, or to use a list or dict as a mapping key.
+    Wrap a list or dict in `Yaml` to use it as a mapping key. To write a tagged
+    node with `format_yaml()` or `write_yaml()`, pass its value and tag to `Yaml`.
 
     `parse_yaml()` and `read_yaml()` use `Yaml` for mapping keys that Python cannot
     hash. They also use it to preserve tags outside the YAML 1.2 core schema when
