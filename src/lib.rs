@@ -318,6 +318,27 @@ fn freeze_for_yaml_hash(py: Python<'_>, obj: &Bound<'_, PyAny>) -> Result<Py<PyA
 }
 
 /// Tagged node or hashable wrapper for unhashable mapping keys.
+///
+/// `parse_yaml()` and `read_yaml()` return a `Yaml` for a tagged node without a
+/// matching handler, and for a mapping key that Python cannot hash, such as a
+/// sequence or mapping. Wrap a value in `Yaml` to emit a tag with `format_yaml()`
+/// or `write_yaml()`, or to use a list or dict as a mapping key.
+///
+/// Indexing, iteration, and `len()` pass through to a wrapped list or dict.
+/// Instances are immutable and hashable, and two instances are equal when their
+/// values and tags are equal.
+///
+/// Args:
+///     value (object): The wrapped value.
+///     tag (str | None): The YAML tag, or None for an untagged wrapper. Simple
+///         local tag names are normalized to `!name` form, so `"gizmo"` and
+///         `"!<gizmo>"` both become `"!gizmo"`.
+///
+/// Examples:
+///     >>> Yaml("1 + x", "!expr")
+///     Yaml(value='1 + x', tag='!expr')
+///     >>> parse_yaml("? [a, b]\n: 1")
+///     {Yaml(['a', 'b']): 1}
 #[pyclass(name = "Yaml", module = "yaml12")]
 struct YamlNode {
     value: Py<PyAny>,
@@ -396,11 +417,13 @@ impl YamlNode {
         Self::new_internal(py, value, tag)
     }
 
+    /// The wrapped value.
     #[getter]
     fn value(&self, py: Python<'_>) -> Py<PyAny> {
         self.value.clone_ref(py)
     }
 
+    /// The YAML tag in normalized form, or None for an untagged wrapper.
     #[getter]
     fn tag(&self, py: Python<'_>) -> Option<Py<PyString>> {
         self.tag.as_ref().map(|tag| tag.clone_ref(py))
