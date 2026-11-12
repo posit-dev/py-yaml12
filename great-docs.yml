@@ -24,7 +24,7 @@ reference:
     desc: Wrapper types for tagged nodes and unhashable mapping keys
     contents:
       - name: Yaml
-        members: false
+        members: [value, tag]
 
   - title: Functions
     desc: Public functions for parsing and emitting YAML
