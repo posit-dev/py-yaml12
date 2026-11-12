@@ -21,17 +21,17 @@ class _Writable(Protocol):
 class Yaml:
     """`Yaml` serves two purposes:
 
-    - Represent a list or dict as a mapping key. `parse_yaml()` and `read_yaml()`
-      wrap keys that Python cannot hash; you can also wrap a list or dict yourself.
+    - Represent a `list` or `dict` as a mapping key. `parse_yaml()` and `read_yaml()`
+      wrap keys that Python cannot hash; you can also wrap a `list` or `dict` yourself.
     - Represent a tagged YAML node. Pass a value and tag to `Yaml` when writing
       with `format_yaml()` or `write_yaml()`. When reading, `parse_yaml()` and
       `read_yaml()` use `Yaml` to preserve tags outside the YAML 1.2 core schema
       when no matching handler is supplied.
 
-    Indexing, iteration, and `len()` operate on the wrapped list or dict. `Yaml`
+    Indexing, iteration, and `len()` operate on the wrapped `list` or `dict`. `Yaml`
     objects are hashable, and their `value` and `tag` attributes are read-only.
-    For lists and dicts, hashing and equality use the tag and the contents at
-    construction, including dict item order.
+    For `list` and `dict` values, hashing and equality use the tag and the contents
+    at construction, including `dict` item order.
 
     Args:
         value (object): The wrapped value.
