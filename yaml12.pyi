@@ -19,14 +19,14 @@ class _Writable(Protocol):
 
 @final
 class Yaml:
-    """A wrapper for unhashable mapping keys and tagged YAML nodes.
+    """`Yaml` serves two purposes:
 
-    Wrap a list or dict in `Yaml` to use it as a mapping key. To write a tagged
-    node with `format_yaml()` or `write_yaml()`, pass its value and tag to `Yaml`.
-
-    `parse_yaml()` and `read_yaml()` use `Yaml` for mapping keys that Python cannot
-    hash. They also use it to preserve tags outside the YAML 1.2 core schema when
-    no matching handler is supplied.
+    - Represent a list or dict as a mapping key. `parse_yaml()` and `read_yaml()`
+      wrap keys that Python cannot hash; you can also wrap a list or dict yourself.
+    - Represent a tagged YAML node. Pass a value and tag to `Yaml` when writing
+      with `format_yaml()` or `write_yaml()`. When reading, `parse_yaml()` and
+      `read_yaml()` use `Yaml` to preserve tags outside the YAML 1.2 core schema
+      when no matching handler is supplied.
 
     Indexing, iteration, and `len()` operate on the wrapped list or dict. `Yaml`
     objects are hashable, and their `value` and `tag` attributes are read-only.
