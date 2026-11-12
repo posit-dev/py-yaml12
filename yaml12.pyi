@@ -19,7 +19,7 @@ class _Writable(Protocol):
 
 @final
 class Yaml:
-    """A hashable wrapper for a value and an optional YAML tag.
+    """A YAML value with an optional tag.
 
     Wrap a value in `Yaml` to give it a tag when writing YAML with `format_yaml()`
     or `write_yaml()`, or to use a list or dict as a mapping key.
@@ -28,10 +28,10 @@ class Yaml:
     hash. They also use it to preserve tags outside the YAML 1.2 core schema when
     no matching handler is supplied.
 
-    Indexing, iteration, and `len()` operate on the wrapped list or dict. The
-    `value` and `tag` attributes are read-only. For lists and dicts, hashing and
-    equality use the tag and the contents at construction, including dict item
-    order.
+    Indexing, iteration, and `len()` operate on the wrapped list or dict. `Yaml`
+    objects are hashable, and their `value` and `tag` attributes are read-only.
+    For lists and dicts, hashing and equality use the tag and the contents at
+    construction, including dict item order.
 
     Args:
         value (object): The wrapped value.
