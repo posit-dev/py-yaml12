@@ -1,8 +1,12 @@
 # yaml12 (development version)
 
-- Wheels are now also built for free-threaded CPython 3.15 (`cp315t`). The
-  stable ABI wheels do not load on free-threaded builds, so each free-threaded
-  Python version needs its own wheel.
+## Installation
+
+- Prebuilt wheels now include free-threaded CPython 3.15 (`cp315t`) for
+  the same platforms as the CPython 3.14 free-threaded wheels. Stable ABI
+  (`abi3`) wheels cannot be loaded by free-threaded builds, so each
+  free-threaded CPython version needs its own wheel. Free-threading support
+  is currently beta.
 
 # yaml12 0.2.0 (2026-08-25)
 
