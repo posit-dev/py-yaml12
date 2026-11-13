@@ -48,8 +48,8 @@ artifacts without publishing them.
    job. It attests the wheel and source artifacts before publishing them to
    PyPI.
 3. Confirm the published file list includes the source distribution, stable
-   ABI CPython wheels, CPython 3.14 free-threaded wheels, and the intended
-   PyPy wheels for every documented platform.
+   ABI CPython wheels, CPython 3.14 and 3.15 free-threaded wheels, and the
+   intended PyPy wheels for every documented platform.
 4. Install the release in a fresh environment from PyPI and run a parse and
    format smoke test.
 5. Create the GitHub release from the existing tag using release notes derived
