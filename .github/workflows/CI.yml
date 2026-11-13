@@ -25,8 +25,10 @@ jobs:
         platform:
           - runner: ubuntu-22.04
             target: x86_64
+            container: quay.io/pypa/manylinux2014_x86_64:latest
           - runner: ubuntu-22.04
             target: x86
+            container: quay.io/pypa/manylinux2014_i686:latest
           - runner: ubuntu-22.04
             target: aarch64
           - runner: ubuntu-22.04
@@ -52,6 +54,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
+          container: ${{ matrix.platform.container }}
           args: --locked --release --out dist --interpreter pypy3.11
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: auto
@@ -82,18 +85,23 @@ jobs:
           python -m pip install --group test
           python -m pip install dist/*cp314t*.whl
           python -m pytest tests_py
-      - uses: actions/setup-python@v7
-        if: ${{ matrix.platform.target == 'x86_64' }}
-        with:
-          python-version: pypy-3.11
       - name: Test PyPy wheel
         if: ${{ matrix.platform.target == 'x86_64' }}
         shell: bash
+        env:
+          PYPY_IMAGE: ${{ matrix.platform.container }}
         run: |
-          python -m pip install -U pip
-          python -m pip install -U pytest
-          python -m pip install dist/*pp*.whl
-          python -m pytest tests_py -k "not typechecks"
+          # Use the build image's PyPy so the wheel and test interpreter share an ABI.
+          docker run --rm --pull=never -i \
+            --volume "$PWD:/io" --workdir /io \
+            "$PYPY_IMAGE" bash -euxo pipefail <<'SH'
+          pypy=(/opt/python/pp311-*/bin/python)
+          test "${#pypy[@]}" -eq 1
+          "${pypy[0]}" -m pip install -U pip
+          "${pypy[0]}" -m pip install -U pytest
+          "${pypy[0]}" -m pip install dist/*pp*.whl
+          "${pypy[0]}" -m pytest tests_py -k "not typechecks"
+          SH
       - name: Upload wheels
         uses: actions/upload-artifact@v7
         with:

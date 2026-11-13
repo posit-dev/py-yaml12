@@ -19,16 +19,45 @@ class _Writable(Protocol):
 
 @final
 class Yaml:
-    """Tagged node or hashable wrapper for unhashable mapping keys."""
+    """A wrapper for unhashable mapping keys and tagged YAML nodes.
 
-    def __new__(cls, value: Any, tag: str | None = ...) -> Yaml: ...
+    `Yaml` serves two purposes:
+
+    - Represent a `list` or `dict` as a mapping key. `parse_yaml()` and `read_yaml()`
+      wrap keys that Python cannot hash; you can also wrap a `list` or `dict` yourself.
+    - Represent a tagged YAML node. Pass a value and tag to `Yaml` when writing
+      with `format_yaml()` or `write_yaml()`. When reading, `parse_yaml()` and
+      `read_yaml()` use `Yaml` to preserve tags outside the YAML 1.2 core schema
+      when no matching handler is supplied.
+
+    Indexing, iteration, and `len()` operate on the wrapped `list` or `dict`. `Yaml`
+    objects are hashable, and their `value` and `tag` attributes are read-only.
+    For `list` and `dict` values, hashing and equality use the tag and the contents
+    at construction, including `dict` item order.
+
+    Args:
+        value (object): The wrapped value.
+        tag (str | None): The YAML tag, or `None` for an untagged value. Simple
+            local tag names are stored with a leading `!`: both `"gizmo"` and
+            `"!<gizmo>"` become `"!gizmo"`.
+
+    Examples:
+        >>> Yaml("1 + x", "!expr")
+        Yaml(value='1 + x', tag='!expr')
+        >>> parse_yaml("? [a, b]\\n: 1")
+        {Yaml(['a', 'b']): 1}
+    """
+
+    def __new__(cls, value: Any, tag: str | None = None) -> Yaml: ...
     def __init__(self) -> None: ...
 
     @property
-    def value(self) -> Any: ...
+    def value(self) -> Any:
+        """The wrapped value."""
 
     @property
-    def tag(self) -> str | None: ...
+    def tag(self) -> str | None:
+        """The YAML tag in normalized form, or `None` for an untagged value."""
 
     def __getitem__(self, key: Any, /) -> Any: ...
     def __iter__(self) -> Any: ...
