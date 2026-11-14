@@ -1,4 +1,9 @@
-# yaml12 (development version)
+# yaml12 0.2.1 (2026-11-14)
+
+## Documentation
+
+- The `Yaml` docstring and type stub now describe the class's two purposes,
+  its constructor arguments, and its `value` and `tag` properties.
 
 ## Installation
 
