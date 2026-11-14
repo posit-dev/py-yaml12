@@ -62,7 +62,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --locked --release --out dist -i python3.14t
+          args: --locked --release --out dist -i python3.14t python3.15t
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: auto
       - name: Test wheel + type checks
@@ -84,6 +84,18 @@ jobs:
           python -m pip install -U pip
           python -m pip install --group test
           python -m pip install dist/*cp314t*.whl
+          python -m pytest tests_py
+      - uses: actions/setup-python@v7
+        if: ${{ matrix.platform.target == 'x86_64' }}
+        with:
+          python-version: 3.15t
+      - name: Test free-threaded 3.15 wheel
+        if: ${{ matrix.platform.target == 'x86_64' }}
+        shell: bash
+        run: |
+          python -m pip install -U pip
+          python -m pip install --group test
+          python -m pip install dist/*cp315t*.whl
           python -m pytest tests_py
       - name: Test PyPy wheel
         if: ${{ matrix.platform.target == 'x86_64' }}
@@ -137,7 +149,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --locked --release --out dist -i python3.14t
+          args: --locked --release --out dist -i python3.14t python3.15t
           sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
           manylinux: musllinux_1_2
       - name: Upload wheels
@@ -207,6 +219,24 @@ jobs:
           python -m pip install dist/*cp314t*.whl
           python -m pytest tests_py
       - uses: actions/setup-python@v7
+        with:
+          python-version: 3.15t
+          architecture: ${{ matrix.platform.python_architecture }}
+      - name: Build free-threaded 3.15 wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --locked --release --out dist --interpreter python
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      - name: Test free-threaded 3.15 wheel
+        if: ${{ matrix.platform.target != 'x86' }}
+        shell: bash
+        run: |
+          python -m pip install -U pip
+          python -m pip install --group test
+          python -m pip install dist/*cp315t*.whl
+          python -m pytest tests_py
+      - uses: actions/setup-python@v7
         if: ${{ matrix.platform.target == 'x64' }}
         with:
           python-version: pypy-3.11
@@ -274,6 +304,22 @@ jobs:
           python -m pip install -U pip
           python -m pip install --group test
           python -m pip install dist/*cp314t*.whl
+          python -m pytest tests_py
+      - uses: actions/setup-python@v7
+        with:
+          python-version: 3.15t
+      - name: Build free-threaded 3.15 wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --locked --release --out dist --interpreter python
+          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      - name: Test free-threaded 3.15 wheel
+        shell: bash
+        run: |
+          python -m pip install -U pip
+          python -m pip install --group test
+          python -m pip install dist/*cp315t*.whl
           python -m pytest tests_py
       - uses: actions/setup-python@v7
         with:

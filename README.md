@@ -39,8 +39,9 @@ Wheel coverage:
 | macOS | Apple silicon, Intel | Apple silicon, Intel |
 | Windows | x86-64, x86, ARM64 | x86-64 |
 
-CPython 3.14 free-threaded builds use separate `cp314t` wheels for the
-same CPython platforms. Free-threading support is currently beta.
+CPython 3.14 and 3.15 free-threaded builds use separate `cp314t` and
+`cp315t` wheels for the same CPython platforms. Free-threading support
+is currently beta.
 
 ## Development install
 
